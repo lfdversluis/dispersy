@@ -16,8 +16,7 @@ class StormDBManager:
         database manager to function.
         """
         # This is currently an IN MEMORY database
-        self.database = create_database("sqlite:")
-
+        self._database = create_database("sqlite:")
 
         # The transactor is required when you have methods decorated with the @transact decorator
         self.transactor = Transactor(reactor.getThreadPool())
@@ -36,7 +35,7 @@ class StormDBManager:
             This function wraps the execute function to ensure None is returned as the
             self.transactor.run method returns the result of the execution.
             """
-            self.transactor.run(self.database._cursor.execute(sql_query, query_arguments))
+            self.transactor.run(self._database._cursor.execute(sql_query, query_arguments))
 
         _wrap(query, arguments)
 
@@ -48,4 +47,4 @@ class StormDBManager:
         :return: A deferred that fires with the first tuple that matches the query or None.
         The result would be the same as using execute and calling the next() function on it.
         """
-        return self.transactor.run(self.database._cursor.fetchone(query, arguments))
+        return self.transactor.run(self._database._cursor.fetchone(query, arguments))
