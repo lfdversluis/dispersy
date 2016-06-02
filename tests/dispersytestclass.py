@@ -91,7 +91,7 @@ class DispersyTestFunc(TestCase):
 
                 self.dispersy_objects.append(dispersy)
 
-                node = self._create_node(dispersy, communityclass, self._mm)
+                node = yield self._create_node(dispersy, communityclass, self._mm)
                 yield node.init_my_member(tunnel=tunnel, store_identity=store_identity)
 
                 nodes.append(node)
@@ -101,5 +101,8 @@ class DispersyTestFunc(TestCase):
         return blockingCallFromThread(reactor, _create_nodes, amount, store_identity, tunnel, community_class,
                                       autoload_discovery, memory_database)
 
+    @inlineCallbacks
     def _create_node(self, dispersy, community_class, c_master_member):
-        return DebugNode(self, dispersy, community_class, c_master_member)
+        node = DebugNode(self, dispersy)
+        yield node.initialize(community_class, c_master_member)
+        returnValue(node)

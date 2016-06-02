@@ -30,15 +30,21 @@ class DebugNode(object):
        node.init_my_member()
     """
 
-    def __init__(self, testclass, dispersy, communityclass=DebugCommunity, c_master_member=None, curve=u"low"):
+    def __init__(self, testclass, dispersy):
         super(DebugNode, self).__init__()
         self._logger = logging.getLogger(self.__class__.__name__)
 
         self._testclass = testclass
         self._dispersy = dispersy
-        self._my_member = self._dispersy.get_new_member(curve)
-        self._my_pub_member = Member(self._dispersy, self._my_member._ec.pub(), self._my_member.database_id)
 
+        self._central_node = None
+        self._tunnel = False
+        self._connection_type = u"unknown"
+
+    @inlineCallbacks
+    def initialize(self, communityclass=DebugCommunity, c_master_member=None, curve=u"low"):
+        self._my_member = yield self._dispersy.get_new_member(curve)
+        self._my_pub_member = Member(self._dispersy, self._my_member._ec.pub(), self._my_member.database_id)
         if c_master_member == None:
             self._community = communityclass.create_community(self._dispersy, self._my_member)
         else:
@@ -46,8 +52,6 @@ class DebugNode(object):
             self._community = communityclass.init_community(self._dispersy, mm, self._my_member)
 
         self._central_node = c_master_member
-        self._tunnel = False
-        self._connection_type = u"unknown"
 
     @property
     def community(self):
