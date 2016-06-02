@@ -335,5 +335,7 @@ def address_in_subnet(address, subnet):
     subnet_main >>= 32-netmask
     return address == subnet_main
 
-
-
+def check_io_originates_from_init():
+    for line in traceback.format_stack():
+        if "__init__" in line:
+            raise IOError("IO Originates from on __init__!")

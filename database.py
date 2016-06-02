@@ -11,8 +11,7 @@ import thread
 from abc import ABCMeta, abstractmethod
 from sqlite3 import Connection
 
-from .util import attach_runtime_statistics
-
+from .util import attach_runtime_statistics, check_io_originates_from_init
 
 if "--explain-query-plan" in getattr(sys, "argv", []):
     _explain_query_plan_logger = logging.getLogger("explain-query-plan")
@@ -120,6 +119,8 @@ class Database(object):
         assert self._cursor is not None, "Database.close() has been called or Database.open() has not been called"
         assert self._connection is not None, "Database.close() has been called or Database.open() has not been called"
 
+        check_io_originates_from_init()
+
         # collect current database configuration
         page_size = int(next(self._cursor.execute(u"PRAGMA page_size"))[0])
         journal_mode = unicode(next(self._cursor.execute(u"PRAGMA journal_mode"))[0]).upper()
@@ -172,6 +173,8 @@ class Database(object):
     def _prepare_version(self):
         assert self._cursor is not None, "Database.close() has been called or Database.open() has not been called"
         assert self._connection is not None, "Database.close() has been called or Database.open() has not been called"
+
+        check_io_originates_from_init()
 
         # check is the database contains an 'option' table
         try:
@@ -273,6 +276,7 @@ class Database(object):
         @returns: unknown
         @raise sqlite.Error: unknown
         """
+        check_io_originates_from_init()
         if __debug__:
             assert self._cursor is not None, "Database.close() has been called or Database.open() has not been called"
             assert self._connection is not None, "Database.close() has been called or Database.open() has not been called"
@@ -297,6 +301,7 @@ class Database(object):
 
     @attach_runtime_statistics(u"{0.__class__.__name__}.{function_name} {1} [{0.file_path}]")
     def executescript(self, statements):
+        check_io_originates_from_init()
         assert self._cursor is not None, "Database.close() has been called or Database.open() has not been called"
         assert self._connection is not None, "Database.close() has been called or Database.open() has not been called"
         assert self._debug_thread_ident != 0, "please call database.open() first"
@@ -335,6 +340,7 @@ class Database(object):
         @returns: unknown
         @raise sqlite.Error: unknown
         """
+        check_io_originates_from_init()
         assert self._cursor is not None, "Database.close() has been called or Database.open() has not been called"
         assert self._connection is not None, "Database.close() has been called or Database.open() has not been called"
         assert self._debug_thread_ident != 0, "please call database.open() first"
@@ -368,6 +374,7 @@ class Database(object):
 
     @attach_runtime_statistics(u"{0.__class__.__name__}.{function_name} [{0.file_path}]")
     def commit(self, exiting=False):
+        check_io_originates_from_init()
         assert self._cursor is not None, "Database.close() has been called or Database.open() has not been called"
         assert self._connection is not None, "Database.close() has been called or Database.open() has not been called"
         assert self._debug_thread_ident != 0, "please call database.open() first"
