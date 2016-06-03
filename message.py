@@ -318,7 +318,7 @@ class Message(MetaObject):
 
     class Implementation(Packet):
 
-        def __init__(self, meta, authentication, resolution, distribution, destination, payload, conversion=None, candidate=None, source=u"unknown", packet="", packet_id=0, sign=True):
+        def __init__(self, meta, authentication, resolution, distribution, destination, payload, conversion=None, candidate=None, source=u"unknown", packet="", packet_id=0):
             from .conversion import Conversion
             assert isinstance(meta, Message), "META has invalid type '%s'" % type(meta)
             assert isinstance(authentication, meta.authentication.Implementation), "AUTHENTICATION has invalid type '%s'" % type(authentication)
@@ -358,16 +358,24 @@ class Message(MetaObject):
             else:
                 self._conversion = meta.community.get_conversion_for_message(self)
 
-            if not packet:
-                self._packet = self._conversion.encode_message(self, sign=sign)
+        def initialize_packet(self, sign):
+            """
+            Must be called if packet was None in the constructor.
+            Args:
+                sign: The verify sign for the packet.
 
-                if __debug__:  # attempt to decode the message when running in debug
-                    try:
-                        self._conversion.decode_message(LoopbackCandidate(), self._packet, verify=sign, allow_empty_signature=True)
-                    except DropPacket:
-                        from binascii import hexlify
-                        self._logger.error("Could not decode message created by me, hex '%s'", hexlify(self._packet))
-                        raise
+            """
+            self._packet = self._conversion.encode_message(self, sign=sign)
+
+            if __debug__:  # attempt to decode the message when running in debug
+                try:
+                    self._conversion.decode_message(LoopbackCandidate(), self._packet, verify=sign,
+                                                    allow_empty_signature=True)
+                except DropPacket:
+                    from binascii import hexlify
+                    self._logger.error("Could not decode message created by me, hex '%s'", hexlify(self._packet))
+                    raise
+
 
         @property
         def conversion(self):
@@ -522,8 +530,13 @@ class Message(MetaObject):
             distribution_impl = self._distribution.Implementation(self._distribution, *distribution)
             destination_impl = self._destination.Implementation(self._destination, *destination)
             payload_impl = self._payload.Implementation(self._payload, *payload)
-            return self.Implementation(self, authentication_impl, resolution_impl, distribution_impl, destination_impl, payload_impl, *args, **kargs)
+            impl = self.Implementation(self, authentication_impl, resolution_impl, distribution_impl, destination_impl, payload_impl, *args, **kargs)
+            packet = kargs.get("packet", "")
 
+            if not packet:
+                sign = kargs["sign"] if "sign" in kargs else True
+                impl.initialize_packet(sign)
+            return impl
         except (TypeError, DropPacket):
             self._logger.error("message name:   %s", self._name)
             self._logger.error("authentication: %s.Implementation", self._authentication.__class__.__name__)
