@@ -1,5 +1,8 @@
 from time import time, sleep
 
+from nose.twistedtools import reactor
+
+from ..util import blockingCallFromThread
 from .dispersytestclass import DispersyTestFunc
 
 
@@ -9,6 +12,13 @@ class TestBatch(DispersyTestFunc):
         super(TestBatch, self).__init__(*args, **kargs)
         self._big_batch_took = 0.0
         self._small_batches_took = 0.0
+
+    def test_expect_two_nodes(self):
+        node, = self.create_nodes()
+        def count():
+            return node._dispersy.database.execute(u"SELECT COUNT(*) FROM member").fetchone()
+        amount, = blockingCallFromThread(reactor, count)
+        self.assertEqual(2, amount)
 
     def test_one_batch(self):
         node, other = self.create_nodes(2)
