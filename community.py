@@ -1846,6 +1846,8 @@ class Community(TaskManager):
         assert not public_key or self._dispersy.crypto.is_valid_public_bin(public_key)
         assert not private_key or self._dispersy.crypto.is_valid_private_bin(private_key)
 
+        self._dispersy.sanity_check(self)
+
         member = self._dispersy.get_member(mid=mid, public_key=public_key, private_key=private_key)
         # We only need to check if this member has an identity message in this community if we still don't have the full
         # public key
