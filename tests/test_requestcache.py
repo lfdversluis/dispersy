@@ -1,6 +1,7 @@
+from .dispersytestclass import DispersyTestFunc
+
 from ..requestcache import RequestCache, NumberCache, RandomNumberCache
 from ..util import blocking_call_on_reactor_thread
-from .dispersytestclass import DispersyTestFunc
 
 
 class TestRequestCache(DispersyTestFunc):
