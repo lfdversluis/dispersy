@@ -13,6 +13,7 @@ from socket import inet_aton, socket, AF_INET, SOCK_DGRAM
 from struct import unpack_from
 
 from twisted.internet import reactor, defer
+from twisted.internet.defer import inlineCallbacks, returnValue
 from twisted.internet.task import LoopingCall
 from twisted.python import failure
 from twisted.python.threadable import isInIOThread
@@ -143,12 +144,13 @@ def attach_runtime_statistics(format_):
 
     def helper(func):
         @functools.wraps(func)
+        @inlineCallbacks
         def wrapper(*args, **kargs):
             return_value = None
             start = time()
             try:
-                return_value = func(*args, **kargs)
-                return return_value
+                return_value = yield func(*args, **kargs)
+                returnValue(return_value)
             finally:
                 end = time()
                 entry = format_.format(function_name=func.__name__, return_value=return_value, *args, **kargs)
