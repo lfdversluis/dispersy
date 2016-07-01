@@ -1,36 +1,51 @@
+from twisted.internet.task import deferLater
+
+from nose.twistedtools import deferred, reactor
+from twisted.internet.defer import inlineCallbacks
+
 from .debugcommunity.community import DebugCommunity
 from .dispersytestclass import DispersyTestFunc
 
 
 class TestNeighborhood(DispersyTestFunc):
 
+    @deferred(timeout=10)
     def test_forward_1(self):
         return self.forward(1)
 
+    @deferred(timeout=10)
     def test_forward_10(self):
         return self.forward(10)
 
+    @deferred(timeout=10)
     def test_forward_2(self):
         return self.forward(2)
 
+    @deferred(timeout=10)
     def test_forward_3(self):
         return self.forward(3)
 
+    @deferred(timeout=15)
     def test_forward_20(self):
         return self.forward(20)
 
+    @deferred(timeout=10)
     def test_forward_0_targeted_5(self):
         return self.forward(0, 5)
 
+    @deferred(timeout=10)
     def test_forward_0_targeted_20(self):
         return self.forward(0, 20)
 
+    @deferred(timeout=10)
     def test_forward_5_targeted_2(self):
         return self.forward(5, 2)
 
+    @deferred(timeout=10)
     def test_forward_2_targeted_5(self):
         return self.forward(2, 5)
 
+    @inlineCallbacks
     def forward(self, non_targeted_node_count, targeted_node_count=0):
         """
         SELF should forward created messages at least to the specified targets.
@@ -59,17 +74,18 @@ class TestNeighborhood(DispersyTestFunc):
         total_node_count = non_targeted_node_count + targeted_node_count
 
         # provide CENTRAL with a neighborhood
-        nodes = self.create_nodes(total_node_count)
+        nodes = yield self.create_nodes(total_node_count)
 
         # SELF creates a message
         candidates = tuple((node.my_candidate for node in nodes[:targeted_node_count]))
-        message = self._mm.create_targeted_full_sync_text("Hello World!", destination=candidates,  global_time=42)
-        self._dispersy._forward([message])
+        message = yield self._mm.create_targeted_full_sync_text("Hello World!", destination=candidates,  global_time=42)
+        yield self._dispersy._forward([message])
 
         # check if sufficient NODES received the message (at least the first `target_count` ones)
         forwarded_node_count = 0
         for node in nodes:
-            forwarded = [m for _, m in node.receive_messages(names=[u"full-sync-text"], timeout=0.1)]
+            messages = yield node.receive_messages(names=[u"full-sync-text"], timeout=0.1)
+            forwarded = [m for _, m in messages]
             if node in nodes[:targeted_node_count]:
                 # They MUST have received the message
                 self.assertEqual(len(forwarded), 1)
