@@ -1,20 +1,26 @@
+from nose.twistedtools import deferred
+from twisted.internet.defer import inlineCallbacks
+
 from .dispersytestclass import DispersyTestFunc
 from ..util import call_on_reactor_thread
 
 
 class TestMember(DispersyTestFunc):
 
+    @deferred(timeout=10)
+    @inlineCallbacks
     def test_verify(self):
-        self._test_verify(u"medium")
-        self._test_verify(u"curve25519")
+        yield self._test_verify(u"medium")
+        yield self._test_verify(u"curve25519")
 
     @call_on_reactor_thread
+    @inlineCallbacks
     def _test_verify(self, curve):
         """
         Test test member.verify assuming create_signature works properly.
         """
         ec = self._dispersy.crypto.generate_key(curve)
-        member = self._dispersy.get_member(private_key=self._dispersy.crypto.key_to_bin(ec))
+        member = yield self._dispersy.get_member(private_key=self._dispersy.crypto.key_to_bin(ec))
 
         # sign and verify "0123456789"[0:10]
         self.assertTrue(member.verify("0123456789", self._dispersy.crypto.create_signature(ec, "0123456789")))
@@ -69,17 +75,20 @@ class TestMember(DispersyTestFunc):
         self.assertFalse(member.verify("0123456789E", self._dispersy.crypto.create_signature(ec, "12345678"), offset=1, length=666))
 
 
+    @deferred(timeout=10)
+    @inlineCallbacks
     def test_sign(self):
-        self._test_sign(u"medium")
-        self._test_sign(u"curve25519")
+        yield self._test_sign(u"medium")
+        yield self._test_sign(u"curve25519")
 
     @call_on_reactor_thread
+    @inlineCallbacks
     def _test_sign(self, curve):
         """
         Test test member.sign assuming is_valid_signature works properly.
         """
         ec = self._dispersy.crypto.generate_key(curve)
-        member = self._dispersy.get_member(private_key=self._dispersy.crypto.key_to_bin(ec))
+        member = yield self._dispersy.get_member(private_key=self._dispersy.crypto.key_to_bin(ec))
 
         # sign and verify "0123456789"[0:10]
         self.assertTrue(self._dispersy.crypto.is_valid_signature(ec, "0123456789", member.sign("0123456789")))
