@@ -1,21 +1,18 @@
+import logging
 from os import environ
 from pprint import pformat
-from time import time
+from time import time, sleep
 from unittest import skipUnless
-import logging
 
-from nose.twistedtools import reactor
 from twisted.internet.defer import inlineCallbacks
-from twisted.internet.task import deferLater
 
+from .debugcommunity.community import DebugCommunity
+from .debugcommunity.conversion import DebugCommunityConversion
+from .dispersytestclass import DispersyTestFunc
 from ..conversion import DefaultConversion
 from ..dispersy import Dispersy
 from ..endpoint import StandaloneEndpoint
 from ..util import blocking_call_on_reactor_thread
-from .debugcommunity.community import DebugCommunity
-from .debugcommunity.conversion import DebugCommunityConversion
-from .dispersytestclass import DispersyTestFunc
-
 
 summary_logger = logging.getLogger("test-overlay-summary")
 
@@ -77,15 +74,18 @@ class TestOverlay(DispersyTestFunc):
         cid = cid_hex.decode("HEX")
 
         dispersy = Dispersy(StandaloneEndpoint(0), u".", u":memory:")
-        dispersy.start(autoload_discovery=True)
+        yield dispersy.initialize_statistics()
+        yield dispersy.start(autoload_discovery=True)
         dispersy.statistics.enable_debug_statistics(True)
         self.dispersy_objects.append(dispersy)
-        community = WCommunity.init_community(dispersy, dispersy.get_member(mid=cid), dispersy.get_new_member())
+        dispersy_member = yield dispersy.get_member(mid=cid)
+        new_dispersy_member = yield dispersy.get_new_member()
+        community = yield WCommunity.init_community(dispersy, dispersy_member, new_dispersy_member)
         summary_logger.info(community.cid.encode("HEX"))
         history = []
         begin = time()
         for _ in xrange(60 * 15):
-            yield deferLater(reactor, 1, lambda: None)
+            sleep(1)
             now = time()
             info = Info()
             info.diff = now - begin
@@ -109,7 +109,7 @@ class TestOverlay(DispersyTestFunc):
                                 len([_ for _, category in info.candidates if category == u"discovered"]),
                                 len([_ for _, category in info.candidates if category is None]))
 
-        dispersy.statistics.update()
+        yield dispersy.statistics.update()
         summary_logger.debug("\n%s", pformat(dispersy.statistics.get_dict()))
 
         # write graph statistics
