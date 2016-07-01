@@ -6,6 +6,7 @@ from random import random, shuffle
 from time import time
 
 from twisted.internet import reactor
+from twisted.internet.defer import inlineCallbacks, returnValue
 from twisted.internet.task import LoopingCall
 
 from ..authentication import MemberAuthentication, NoAuthentication
@@ -174,6 +175,7 @@ class PossibleTasteBuddy(TasteBuddy):
 
 class DiscoveryCommunity(Community):
 
+    @inlineCallbacks
     def initialize(self, max_prefs=25, max_tbs=25):
         self._logger.debug('initializing DiscoveryComunity, max_prefs = %d, max_tbs = %d', max_prefs, max_tbs)
 
@@ -214,7 +216,7 @@ class DiscoveryCommunity(Community):
         self.register_task('create_ping_requests',
                            LoopingCall(self.create_ping_requests)).start(PING_INTERVAL)
 
-        super(DiscoveryCommunity, self).initialize()
+        yield super(DiscoveryCommunity, self).initialize()
 
     def unload_community(self):
         super(DiscoveryCommunity, self).unload_community()
@@ -245,6 +247,7 @@ class DiscoveryCommunity(Community):
         return candidate
 
     @classmethod
+    @inlineCallbacks
     def get_master_members(cls, dispersy):
 # generated: Fri Apr 25 13:37:28 2014
 # curve: NID_sect571r1
@@ -259,8 +262,8 @@ class DiscoveryCommunity(Community):
 #-----END PUBLIC KEY-----
         master_key = "3081a7301006072a8648ce3d020106052b81040027038192000403b3ab059ced9b20646ab5e01762b3595c5e8855227ae1e424cff38a1e4edee73734ff2e2e829eb4f39bab20d7578284fcba7251acd74e7daf96f21d01ea17077faf4d27a655837d072baeb671287a88554e1191d8904b0dc572d09ff95f10ff092c8a5e2a01cd500624376aec875a6e3028aab784cfaf0bac6527245db8d93900d904ac2a922a02716ccef5a22f7968".decode(
             "HEX")
-        master = dispersy.get_member(public_key=master_key)
-        return [master]
+        master = yield dispersy.get_member(public_key=master_key)
+        returnValue([master])
 
     def initiate_meta_messages(self):
         meta_messages = super(DiscoveryCommunity, self).initiate_meta_messages()
@@ -484,6 +487,7 @@ class DiscoveryCommunity(Community):
             self.community.send_introduction_request(self.requested_candidate, allow_sync=self.allow_sync)
             self.community.peer_cache.inc_num_fails(self.requested_candidate)
 
+    @inlineCallbacks
     def create_introduction_request(self, destination, allow_sync, forward=True, is_fast_walker=False):
         assert isinstance(destination, WalkCandidate), [type(destination), destination]
 
@@ -492,11 +496,12 @@ class DiscoveryCommunity(Community):
 
         send = False
         if not self.is_recent_taste_buddy(destination):
-            send = self.create_similarity_request(destination, allow_sync=allow_sync)
+            send = yield self.create_similarity_request(destination, allow_sync=allow_sync)
 
         if not send:
-            self.send_introduction_request(destination, allow_sync=allow_sync)
+            yield self.send_introduction_request(destination, allow_sync=allow_sync)
 
+    @inlineCallbacks
     def create_similarity_request(self, destination, allow_sync=True):
         payload = self.my_preferences()[:self.max_prefs]
         if payload:
@@ -507,17 +512,18 @@ class DiscoveryCommunity(Community):
                                destination, cache.number, len(payload))
 
             meta_request = self.get_meta_message(u"similarity-request")
-            request = meta_request.impl(authentication=(self.my_member,), distribution=(self.global_time,), destination=(destination,), payload=(
+            request = yield meta_request.impl(authentication=(self.my_member,), distribution=(self.global_time,), destination=(destination,), payload=(
                 cache.number, self._dispersy.lan_address, self._dispersy.wan_address, self._dispersy.connection_type, payload))
 
-            if self._dispersy._forward([request]):
+            forward_result = yield self._dispersy._forward([request])
+            if forward_result:
                 self.send_packet_size += len(request.packet)
 
                 self._logger.debug("DiscoveryCommunity: sending similarity request to %s containing %d preferences: %s",
                                    destination, len(payload), [preference.encode('HEX') for preference in payload])
-            return True
+            returnValue(True)
 
-        return False
+        returnValue(False)
 
     def check_similarity_request(self, messages):
         for message in messages:
@@ -532,6 +538,7 @@ class DiscoveryCommunity(Community):
 
             yield message
 
+    @inlineCallbacks
     def on_similarity_request(self, messages):
         meta = self.get_meta_message(u"similarity-response")
 
@@ -572,13 +579,13 @@ class DiscoveryCommunity(Community):
                 bitfields.append((tb.candidate_mid, bitfield))
 
             payload = (message.payload.identifier, self.my_preferences()[:self.max_prefs], bitfields)
-            response_message = meta.impl(
+            response_message = yield meta.impl(
                 authentication=(self.my_member,), distribution=(self.global_time,), payload=payload)
 
             self._logger.debug("DiscoveryCommunity: sending similarity response to %s containing %s",
                                message.candidate, [preference.encode('HEX') for preference in payload[1]])
 
-            self._dispersy._send([message.candidate], [response_message])
+            yield self._dispersy._send([message.candidate], [response_message])
 
     def compute_overlap(self, his_prefs, my_prefs=None):
         return len(set(his_prefs) & set(my_prefs or self.my_preferences()))
@@ -597,6 +604,7 @@ class DiscoveryCommunity(Community):
 
             yield message
 
+    @inlineCallbacks
     def on_similarity_response(self, messages):
         for message in messages:
             # Update possible taste buddies.
@@ -634,20 +642,22 @@ class DiscoveryCommunity(Community):
             self.add_possible_taste_buddies(possibles)
 
             destination, introduce_me_to = self.get_most_similar(w_candidate)
-            self.send_introduction_request(destination, introduce_me_to, request.allow_sync)
+            yield self.send_introduction_request(destination, introduce_me_to, request.allow_sync)
 
             self.reply_packet_size += len(message.packet)
 
+    @inlineCallbacks
     def send_introduction_request(self, destination, introduce_me_to=None, allow_sync=True):
         assert isinstance(destination, WalkCandidate), [type(destination), destination]
         assert not introduce_me_to or isinstance(introduce_me_to, str), type(introduce_me_to)
 
         extra_payload = [introduce_me_to]
-        super(DiscoveryCommunity, self).create_introduction_request(destination, allow_sync, extra_payload=extra_payload)
+        yield super(DiscoveryCommunity, self).create_introduction_request(destination, allow_sync, extra_payload=extra_payload)
 
         self._logger.debug("DiscoveryCommunity: sending introduction-request to %s (%s,%s)", destination,
                            introduce_me_to.encode("HEX") if introduce_me_to else '', allow_sync)
 
+    @inlineCallbacks
     def on_introduction_request(self, messages):
         for message in messages:
             introduce_me_to = ''
@@ -655,7 +665,7 @@ class DiscoveryCommunity(Community):
                 ctb = self.is_taste_buddy(message.candidate)
                 self._logger.debug("Got intro request from %s %s", ctb, ctb.overlap if ctb else 0)
 
-                rtb = self.get_tb_or_candidate_mid(message.payload.introduce_me_to)
+                rtb = yield self.get_tb_or_candidate_mid(message.payload.introduce_me_to)
                 if rtb:
                     self.requested_introductions[message.candidate.get_member().mid] = introduce_me_to = rtb
 
@@ -663,14 +673,16 @@ class DiscoveryCommunity(Community):
                                message.payload.introduce_me_to.encode("HEX") if message.payload.introduce_me_to else '-',
                                introduce_me_to, self.requested_introductions)
 
-        super(DiscoveryCommunity, self).on_introduction_request(messages)
+        yield super(DiscoveryCommunity, self).on_introduction_request(messages)
 
+    @inlineCallbacks
     def get_tb_or_candidate_mid(self, mid):
         tb = self.is_taste_buddy_mid(mid)
         if tb:
-            return tb.candidate
+            returnValue(tb.candidate)
 
-        return self.get_candidate_mid(mid)
+        candidate_mid = yield self.get_candidate_mid(mid)
+        returnValue(candidate_mid)
 
     def dispersy_get_introduce_candidate(self, exclude_candidate=None):
         if exclude_candidate:
@@ -693,16 +705,18 @@ class DiscoveryCommunity(Community):
             self._logger.debug("DiscoveryCommunity: no response on ping, removing from taste_buddies %s", self.requested_candidate)
             self.community.remove_taste_buddy(self.requested_candidate)
 
+    @inlineCallbacks
     def create_ping_requests(self):
         tbs = list(self.yield_taste_buddies())[:self.max_tbs]
         for tb in tbs:
             if tb.time_remaining() < PING_INTERVAL:
                 cache = self._request_cache.add(DiscoveryCommunity.PingRequestCache(self, tb.candidate))
-                self._create_pingpong(u"ping", tb.candidate, cache.number)
+                yield self._create_pingpong(u"ping", tb.candidate, cache.number)
 
+    @inlineCallbacks
     def on_ping(self, messages):
         for message in messages:
-            self._create_pingpong(u"pong", message.candidate, message.payload.identifier)
+            yield self._create_pingpong(u"pong", message.candidate, message.payload.identifier)
 
             self._logger.debug("DiscoveryCommunity: got ping from %s", message.candidate)
             self.reset_taste_buddy(message.candidate)
@@ -731,10 +745,11 @@ class DiscoveryCommunity(Community):
 
             self.reset_taste_buddy(message.candidate)
 
+    @inlineCallbacks
     def _create_pingpong(self, meta_name, candidate, identifier):
         meta = self.get_meta_message(meta_name)
-        message = meta.impl(distribution=(self.global_time,), payload=(identifier,))
-        self._dispersy._send([candidate, ], [message])
+        message = yield meta.impl(distribution=(self.global_time,), payload=(identifier,))
+        yield self._dispersy._send([candidate, ], [message])
 
         self._logger.debug("DiscoveryCommunity: send %s to %s",
                            meta_name, str(candidate))
