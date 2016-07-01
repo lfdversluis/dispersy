@@ -10,6 +10,9 @@
 from itertools import combinations, islice
 from time import time
 
+from nose.twistedtools import deferred
+from twisted.internet.defer import inlineCallbacks, returnValue
+
 from ..candidate import CANDIDATE_ELIGIBLE_DELAY
 from ..tracker.community import TrackerCommunity
 from ..util import blocking_call_on_reactor_thread
@@ -353,6 +356,7 @@ class TestCandidates(DispersyTestFunc):
         with community.dispersy.database:
             return list(generator())
 
+    @inlineCallbacks
     def set_timestamps(self, candidates, all_flags):
         assert isinstance(candidates, list)
         assert isinstance(all_flags, list)
@@ -361,10 +365,11 @@ class TestCandidates(DispersyTestFunc):
         for flags, candidate in zip(all_flags, candidates):
             member = [None]
 
+            @inlineCallbacks
             def get_member():
                 if not member[0]:
-                    member[0] = self._dispersy.get_new_member(u"very-low")
-                return member[0]
+                    member[0] = yield self._dispersy.get_new_member(u"very-low")
+                returnValue(member[0])
 
             if "w" in flags:
                 # SELF has performed an outgoing walk to CANDIDATE
@@ -373,20 +378,23 @@ class TestCandidates(DispersyTestFunc):
 
             if "r" in flags:
                 # SELF has received an incoming walk response from CANDIDATE
-                candidate.associate(get_member())
+                new_dispersy_member = yield get_member()
+                candidate.associate(new_dispersy_member)
                 candidate.walk_response(now)
                 assert candidate.last_walk_reply == now
 
             if "e" in flags:
                 # CANDIDATE_ELIGIBLE_DELAY seconds ago SELF performed a successful walk to CANDIDATE
-                candidate.associate(get_member())
+                new_dispersy_member = yield get_member()
+                candidate.associate(new_dispersy_member)
                 candidate.walk(now - CANDIDATE_ELIGIBLE_DELAY)
                 candidate.walk_response(now)
                 assert candidate.last_walk_reply == now, (candidate.last_walk_reply)
 
             if "s" in flags:
                 # SELF has received an incoming walk request from CANDIDATE
-                candidate.associate(get_member())
+                new_dispersy_member = yield get_member()
+                candidate.associate(new_dispersy_member)
                 candidate.stumble(now)
                 assert candidate.last_stumble == now
 
@@ -400,7 +408,7 @@ class TestCandidates(DispersyTestFunc):
                 candidate.discovered(now)
                 assert candidate.last_discovered == now
 
-        return now
+        returnValue(now)
 
     def select_candidates(self, candidates, all_flags):
         def filter_func(flags):
@@ -477,6 +485,7 @@ class TestCandidates(DispersyTestFunc):
         return [candidate for flags, candidate in zip(all_flags, candidates) if filter_func(flags, candidate)]
 
     @blocking_call_on_reactor_thread
+    @inlineCallbacks
     def check_candidates(self, all_flags):
         assert isinstance(all_flags, list)
         assert all(isinstance(flags, str) for flags in all_flags)
@@ -502,18 +511,18 @@ class TestCandidates(DispersyTestFunc):
         assert isinstance(max_calls, int)
         assert isinstance(max_iterations, int)
         assert len(all_flags) < max_iterations
-        community = NoBootstrapDebugCommunity.create_community(self._dispersy, self._mm._my_member)
+        community = yield NoBootstrapDebugCommunity.create_community(self._dispersy, self._mm._my_member)
         candidates = self.create_candidates(community, all_flags)
 
         # yield_candidates
-        self.set_timestamps(candidates, all_flags)
+        yield self.set_timestamps(candidates, all_flags)
         selection = self.select_candidates(candidates, all_flags)
         actual_list = [islice(community.dispersy_yield_candidates(), max_iterations) for _ in xrange(max_calls)]
         for actual in actual_list:
             compare(selection, actual)
 
         # yield_verified_candidates
-        self.set_timestamps(candidates, all_flags)
+        yield self.set_timestamps(candidates, all_flags)
         selection = self.select_verified_candidates(candidates, all_flags)
         actual_list = [islice(community.dispersy_yield_verified_candidates(), max_iterations)
                        for _ in xrange(max_calls)]
@@ -521,13 +530,13 @@ class TestCandidates(DispersyTestFunc):
             compare(selection, actual)
 
         # get_introduce_candidate (no exclusion)
-        self.set_timestamps(candidates, all_flags)
+        yield self.set_timestamps(candidates, all_flags)
         selection = self.select_introduce_candidates(candidates, all_flags) or [None]
         actual = [community.dispersy_get_introduce_candidate() for _ in xrange(max_calls)]
         compare(selection, actual)
 
         # get_introduce_candidate (with exclusion)
-        self.set_timestamps(candidates, all_flags)
+        yield self.set_timestamps(candidates, all_flags)
         for candidate in candidates:
             selection = self.select_introduce_candidates(candidates, all_flags, candidate) or [None]
             actual = [community.dispersy_get_introduce_candidate(candidate) for _ in xrange(max_calls)]
@@ -536,7 +545,7 @@ class TestCandidates(DispersyTestFunc):
         # get_walk_candidate
         # Note that we must perform the CANDIDATE.WALK to ensure this candidate is not iterated again.  Because of this,
         # this test must be done last.
-        self.set_timestamps(candidates, all_flags)
+        yield self.set_timestamps(candidates, all_flags)
         selection = self.select_walk_candidates(candidates, all_flags)
         for _ in xrange(len(selection)):
             candidate = community.dispersy_get_walk_candidate()
@@ -549,25 +558,27 @@ class TestCandidates(DispersyTestFunc):
         candidate = community.dispersy_get_walk_candidate()
         self.assertEquals(candidate, None)
 
-    @blocking_call_on_reactor_thread
-    def test_get_introduce_candidate(self, community_create_method=DebugCommunity.create_community):
-        community = community_create_method(self._dispersy, self._community._my_member)
-        candidates = self.create_candidates(community, [""] * 5)
-        expected = [None, ("127.0.0.1", 1), ("127.0.0.1", 2), ("127.0.0.1", 3), ("127.0.0.1", 4)]
-        now = time()
-        got = []
-        for candidate in candidates:
-            candidate.associate(self._dispersy.get_new_member(u"very-low"))
-            candidate.stumble(now)
-            introduce = community.dispersy_get_introduce_candidate(candidate)
-            got.append(introduce.sock_addr if introduce else None)
-        self.assertEquals(expected, got)
-
-        return community, candidates
-
-    @blocking_call_on_reactor_thread
+    @deferred(timeout=10)
+    @inlineCallbacks
     def test_tracker_get_introduce_candidate(self, community_create_method=TrackerCommunity.create_community):
-        community, candidates = self.test_get_introduce_candidate(community_create_method)
+        @inlineCallbacks
+        def get_introduce_candidate(self, community_create_method=DebugCommunity.create_community):
+            community = yield community_create_method(self._dispersy, self._community._my_member)
+            candidates = self.create_candidates(community, [""] * 5)
+            expected = [None, ("127.0.0.1", 1), ("127.0.0.1", 2), ("127.0.0.1", 3), ("127.0.0.1", 4)]
+            now = time()
+            got = []
+            for candidate in candidates:
+                new_dispersy_member = yield self._dispersy.get_new_member(u"very-low")
+                candidate.associate(new_dispersy_member)
+                candidate.stumble(now)
+                introduce = community.dispersy_get_introduce_candidate(candidate)
+                got.append(introduce.sock_addr if introduce else None)
+            self.assertEquals(expected, got)
+
+            returnValue((community, candidates))
+
+        community, candidates = yield get_introduce_candidate(self, community_create_method)
 
         # trackers should not prefer either stumbled or walked candidates, i.e. it should not return
         # candidate 1 more than once/in the wrong position
@@ -580,10 +591,11 @@ class TestCandidates(DispersyTestFunc):
             got.append(introduce.sock_addr if introduce else None)
         self.assertEquals(expected, got)
 
-    @blocking_call_on_reactor_thread
+    @deferred(timeout=10)
+    @inlineCallbacks
     def test_introduction_probabilities(self):
         candidates = self.create_candidates(self._community, ["wr", "s"])
-        self.set_timestamps(candidates, ["wr", "s"])
+        yield self.set_timestamps(candidates, ["wr", "s"])
 
         # fetch candidates
         returned_walked_candidate = 0
@@ -594,10 +606,11 @@ class TestCandidates(DispersyTestFunc):
 
         assert returned_walked_candidate in expected_walked_range
 
-    @blocking_call_on_reactor_thread
+    @deferred(timeout=10)
+    @inlineCallbacks
     def test_walk_probabilities(self):
         candidates = self.create_candidates(self._community, ["e", "s", "i", "d"])
-        self.set_timestamps(candidates, ["e", "s", "i", "d"])
+        yield self.set_timestamps(candidates, ["e", "s", "i", "d"])
 
         # fetch candidates
         returned_walked_candidate = 0
