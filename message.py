@@ -2,6 +2,9 @@ import logging
 from abc import ABCMeta, abstractmethod, abstractproperty
 from time import time
 
+from twisted.internet.defer import inlineCallbacks
+from twisted.internet.defer import returnValue
+
 from .authentication import Authentication
 from .candidate import Candidate, LoopbackCandidate
 from .destination import Destination
@@ -82,9 +85,11 @@ class DelayPacketByMissingMember(DelayPacket):
     def match_info(self):
         return (self._cid, u"dispersy-identity", self._missing_member_id, None, []),
 
+    @inlineCallbacks
     def send_request(self, community, candidate):
-        return community.create_missing_identity(candidate,
-                    community.dispersy.get_member(mid=self._missing_member_id))
+        dispersy_member = yield community.dispersy.get_member(mid=self._missing_member_id)
+        missing_identity = yield community.create_missing_identity(candidate, dispersy_member)
+        returnValue(missing_identity)
 
 
 class DelayPacketByMissingMessage(DelayPacket):
@@ -100,8 +105,10 @@ class DelayPacketByMissingMessage(DelayPacket):
     def match_info(self):
         return (self._cid, None, self._member.mid, self._global_time, []),
 
+    @inlineCallbacks
     def send_request(self, community, candidate):
-        return community.create_missing_message(candidate, self._member, self._global_time)
+        missing_message = yield community.create_missing_message(candidate, self._member, self._global_time)
+        returnValue(missing_message)
 
 
 class DropPacket(Exception):
@@ -140,8 +147,9 @@ class DelayMessageByProof(DelayMessage):
     def resume_immediately(self):
         return True
 
+    @inlineCallbacks
     def send_request(self, community, candidate):
-        community.create_missing_proof(candidate, self._delayed)
+        yield community.create_missing_proof(candidate, self._delayed)
 
 
 class DelayMessageBySequence(DelayMessage):
@@ -161,8 +169,9 @@ class DelayMessageBySequence(DelayMessage):
     def match_info(self):
         return (self._cid, None, self._delayed.authentication.member.mid, None, range(self._missing_low, self._missing_high + 1)),
 
+    @inlineCallbacks
     def send_request(self, community, candidate):
-        community.create_missing_sequence(candidate, self._delayed.authentication.member,
+        yield community.create_missing_sequence(candidate, self._delayed.authentication.member,
                                           self._delayed.meta, self._missing_low, self._missing_high)
 
 
@@ -182,8 +191,9 @@ class DelayMessageByMissingMessage(DelayMessage):
     def match_info(self):
         return (self._cid, None, self._member.mid, self._global_time, []),
 
+    @inlineCallbacks
     def send_request(self, community, candidate):
-        community.create_missing_message(candidate, self._member, self._global_time)
+        yield community.create_missing_message(candidate, self._member, self._global_time)
 
 
 class DropMessage(Exception):
@@ -302,10 +312,11 @@ class Packet(MetaObject.Implementation):
         assert isinstance(packet_id, (int, long))
         self._packet_id = packet_id
 
+    @inlineCallbacks
     def load_message(self):
-        message = self._meta.community.dispersy.convert_packet_to_message(self._packet, self._meta.community, verify=False)
+        message = yield self._meta.community.dispersy.convert_packet_to_message(self._packet, self._meta.community, verify=False)
         message.packet_id = self._packet_id
-        return message
+        returnValue(message)
 
     def __str__(self):
         return "<%s.%s %s %dbytes>" % (self._meta.__class__.__name__, self.__class__.__name__, self._meta._name, len(self._packet))
@@ -318,7 +329,7 @@ class Message(MetaObject):
 
     class Implementation(Packet):
 
-        def __init__(self, meta, authentication, resolution, distribution, destination, payload, conversion=None, candidate=None, source=u"unknown", packet="", packet_id=0, sign=True):
+        def __init__(self, meta, authentication, resolution, distribution, destination, payload, conversion=None, candidate=None, source=u"unknown", packet="", packet_id=0):
             from .conversion import Conversion
             assert isinstance(meta, Message), "META has invalid type '%s'" % type(meta)
             assert isinstance(authentication, meta.authentication.Implementation), "AUTHENTICATION has invalid type '%s'" % type(authentication)
@@ -358,16 +369,24 @@ class Message(MetaObject):
             else:
                 self._conversion = meta.community.get_conversion_for_message(self)
 
-            if not packet:
-                self._packet = self._conversion.encode_message(self, sign=sign)
+        @inlineCallbacks
+        def initialize_packet(self, sign):
+            """
+            Must be called if packet was None in the constructor.
+            Args:
+                sign: The verify sign for the packet.
 
-                if __debug__:  # attempt to decode the message when running in debug
-                    try:
-                        self._conversion.decode_message(LoopbackCandidate(), self._packet, verify=sign, allow_empty_signature=True)
-                    except DropPacket:
-                        from binascii import hexlify
-                        self._logger.error("Could not decode message created by me, hex '%s'", hexlify(self._packet))
-                        raise
+            """
+            self._packet = yield self._conversion.encode_message(self, sign=sign)
+
+            if __debug__:  # attempt to decode the message when running in debug
+                try:
+                    yield self._conversion.decode_message(LoopbackCandidate(), self._packet, verify=sign,
+                                                          allow_empty_signature=True)
+                except DropPacket:
+                    from binascii import hexlify
+                    self._logger.error("Could not decode message created by me, hex '%s'", hexlify(self._packet))
+                    raise
 
         @property
         def conversion(self):
@@ -413,11 +432,12 @@ class Message(MetaObject):
         def load_message(self):
             return self
 
+        @inlineCallbacks
         def regenerate_packet(self, packet=""):
             if packet:
                 self._packet = packet
             else:
-                self._packet = self._conversion.encode_message(self)
+                self._packet = yield self._conversion.encode_message(self)
 
         def __str__(self):
             return "<%s.%s %s>" % (self._meta.__class__.__name__, self.__class__.__name__, self._meta._name)
@@ -510,6 +530,7 @@ class Message(MetaObject):
     def batch(self):
         return self._batch
 
+    @inlineCallbacks
     def impl(self, authentication=(), resolution=(), distribution=(), destination=(), payload=(), *args, **kargs):
         assert isinstance(authentication, tuple), type(authentication)
         assert isinstance(resolution, tuple), type(resolution)
@@ -522,8 +543,13 @@ class Message(MetaObject):
             distribution_impl = self._distribution.Implementation(self._distribution, *distribution)
             destination_impl = self._destination.Implementation(self._destination, *destination)
             payload_impl = self._payload.Implementation(self._payload, *payload)
-            return self.Implementation(self, authentication_impl, resolution_impl, distribution_impl, destination_impl, payload_impl, *args, **kargs)
+            impl = self.Implementation(self, authentication_impl, resolution_impl, distribution_impl, destination_impl, payload_impl, *args, **kargs)
+            packet = kargs.get("packet", "")
 
+            if not packet:
+                sign = kargs["sign"] if "sign" in kargs else True
+                yield impl.initialize_packet(sign)
+            returnValue(impl)
         except (TypeError, DropPacket):
             self._logger.error("message name:   %s", self._name)
             self._logger.error("authentication: %s.Implementation", self._authentication.__class__.__name__)
