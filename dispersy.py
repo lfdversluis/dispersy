@@ -48,7 +48,7 @@ from time import time
 
 import netifaces
 from twisted.internet import reactor
-from twisted.internet.defer import maybeDeferred, gatherResults
+from twisted.internet.defer import maybeDeferred, gatherResults, inlineCallbacks, returnValue
 from twisted.internet.task import LoopingCall
 from twisted.python.failure import Failure
 from twisted.python.threadable import isInIOThread
@@ -155,8 +155,11 @@ class Dispersy(TaskManager):
         # progress handlers (used to notify the user when something will take a long time)
         self._progress_handlers = []
 
+    @inlineCallbacks
+    def initialize_statistics(self):
         # statistics...
         self._statistics = DispersyStatistics(self)
+        yield self._statistics.initialize()
 
     @staticmethod
     def _get_interface_addresses():
@@ -373,6 +376,7 @@ class Dispersy(TaskManager):
         """
         return self._statistics
 
+    @inlineCallbacks
     def define_auto_load(self, community_cls, my_member, args=(), kargs=None, load=False):
         """
         Tell Dispersy how to load COMMUNITY if need be.
@@ -401,15 +405,16 @@ class Dispersy(TaskManager):
 
         communities = []
         if load:
-            for master in community_cls.get_master_members(self):
+            master_members = yield community_cls.get_master_members(self)
+            for master in master_members:
                 if not master.mid in self._communities:
                     self._logger.debug("Loading %s at start", community_cls.get_classification())
-                    community = community_cls.init_community(self, master, my_member, *args, **kargs)
+                    community = yield community_cls.init_community(self, master, my_member, *args, **kargs)
                     communities.append(community)
                     assert community.master_member.mid == master.mid
                     assert community.master_member.mid in self._communities
 
-        return communities
+        returnValue(communities)
 
     def undefine_auto_load(self, community):
         """
@@ -445,6 +450,7 @@ class Dispersy(TaskManager):
     def get_progress_handlers(self):
         return self._progress_handlers
 
+    @inlineCallbacks
     def get_member(self, mid="", public_key="", private_key=""):
         """Returns a Member instance associated with public_key.
 
@@ -477,7 +483,7 @@ class Dispersy(TaskManager):
 
         member = self._member_cache_by_hash.get(mid)
         if member:
-            return member
+            returnValue(member)
 
         if private_key:
             key = self.crypto.key_from_private_bin(private_key)
@@ -489,7 +495,9 @@ class Dispersy(TaskManager):
         # both public and private keys are valid at this point
 
         # The member is not cached, let's try to get it from the database
-        row = self.database.execute(u"SELECT id, public_key, private_key FROM member WHERE mid = ? LIMIT 1", (buffer(mid),)).fetchone()
+        row = yield self.database.stormdb.fetchone(
+            u"SELECT id, public_key, private_key FROM member WHERE mid = ? LIMIT 1",
+            (buffer(mid),))
 
         if row:
             database_id, public_key_from_db, private_key_from_db = row
@@ -501,8 +509,8 @@ class Dispersy(TaskManager):
             if private_key:
                 assert public_key
                 if private_key_from_db != private_key:
-                    self.database.execute(u"UPDATE member SET public_key = ?, private_key = ? WHERE id = ?",
-                        (buffer(public_key), buffer(private_key), database_id))
+                    yield self.database.stormdb.execute(u"UPDATE member SET public_key = ?, private_key = ? WHERE id = ?",
+                                          (buffer(public_key), buffer(private_key), database_id))
             else:
                 # the private key from the database overrules the public key argument
                 if private_key_from_db:
@@ -511,29 +519,29 @@ class Dispersy(TaskManager):
                 # the public key argument overrules anything in the database
                 elif public_key:
                     if public_key_from_db != public_key:
-                        self.database.execute(u"UPDATE member SET public_key = ? WHERE id = ?",
-                            (buffer(public_key), database_id))
+                        yield self.database.stormdb.execute(u"UPDATE member SET public_key = ? WHERE id = ?",
+                                              (buffer(public_key), database_id))
 
                 # no priv/pubkey arguments passed, maybe use the public key from the database
                 elif public_key_from_db:
                     key = self.crypto.key_from_public_bin(public_key_from_db)
 
                 else:
-                    return DummyMember(self, database_id, mid)
+                    returnValue(DummyMember(self, database_id, mid))
 
         # the member is not in the database, insert it
         elif public_key or private_key:
             if private_key:
                 assert public_key
             # The MID or public/private keys are not in the database, store them.
-            database_id = self.database.execute(
+            database_id = yield self.database.stormdb.execute(
                 u"INSERT INTO member (mid, public_key, private_key) VALUES (?, ?, ?)",
                 (buffer(mid), buffer(public_key), buffer(private_key)), get_lastrowid=True)
         else:
             # We could't find the key on the DB, nothing else to do
-            database_id = self.database.execute(u"INSERT INTO member (mid) VALUES (?)",
-                (buffer(mid),), get_lastrowid=True)
-            return DummyMember(self, database_id, mid)
+            database_id = yield self.database.stormdb.execute(u"INSERT INTO member (mid) VALUES (?)",
+                                                (buffer(mid),), get_lastrowid=True)
+            returnValue(DummyMember(self, database_id, mid))
 
         member = Member(self, key, database_id, mid)
 
@@ -544,16 +552,19 @@ class Dispersy(TaskManager):
         if len(self._member_cache_by_hash) > 1024:
             self._member_cache_by_hash.popitem(False)
 
-        return member
+        returnValue(member)
 
+    @inlineCallbacks
     def get_new_member(self, securitylevel=u"medium"):
         """
         Returns a Member instance created from a newly generated public key.
         """
         assert isinstance(securitylevel, unicode), type(securitylevel)
         key = self.crypto.generate_key(securitylevel)
-        return self.get_member(private_key=self.crypto.key_to_bin(key))
+        member = yield self.get_member(private_key=self.crypto.key_to_bin(key))
+        returnValue(member)
 
+    @inlineCallbacks
     def get_member_from_database_id(self, database_id):
         """
         Returns a Member instance associated with DATABASE_ID or None when this row identifier is
@@ -561,11 +572,14 @@ class Dispersy(TaskManager):
         """
         assert isinstance(database_id, (int, long)), type(database_id)
         try:
-            public_key, = next(self._database.execute(u"SELECT public_key FROM member WHERE id = ?", (database_id,)))
-            return self.get_member(public_key=str(public_key))
-        except StopIteration:
+            public_key, = yield self._database.stormdb.fetchone(u"SELECT public_key FROM member WHERE id = ?",
+                                                                (database_id,))
+            member = yield self.get_member(public_key=str(public_key))
+            returnValue(member)
+        except TypeError:
             pass
 
+    @inlineCallbacks
     def reclassify_community(self, source, destination):
         """
         Change a community classification.
@@ -604,7 +618,7 @@ class Dispersy(TaskManager):
             master = source.master_member
             source.unload_community()
 
-        self._database.execute(u"UPDATE community SET classification = ? WHERE master = ?",
+        yield self._database.stormdb.execute(u"UPDATE community SET classification = ? WHERE master = ?",
                                (destination_classification, master.database_id))
 
         if destination_classification in self._auto_load_communities:
@@ -612,14 +626,15 @@ class Dispersy(TaskManager):
             assert cls == destination, [cls, destination]
 
         else:
-            my_member_did, = self._database.execute(u"SELECT member FROM community WHERE master = ?",
-                               (master.database_id,)).next()
+            my_member_did, = yield self._database.stormdb.fetchone(u"SELECT member FROM community WHERE master = ?",
+                               (master.database_id,))
 
-            my_member = self.get_member_from_database_id(my_member_did)
+            my_member = yield self.get_member_from_database_id(my_member_did)
             args = ()
             kargs = {}
 
-        return destination.init_community(self, master, my_member, *args, **kargs)
+        community = yield destination.init_community(self, master, my_member, *args, **kargs)
+        returnValue(community)
 
     def has_community(self, cid):
         """
@@ -627,6 +642,7 @@ class Dispersy(TaskManager):
         """
         return cid in self._communities
 
+    @inlineCallbacks
     def get_community(self, cid, load=False, auto_load=True):
         """
         Returns a community by its community id.
@@ -656,27 +672,31 @@ class Dispersy(TaskManager):
         assert isinstance(auto_load, bool)
 
         try:
-            return self._communities[cid]
+            returnValue(self._communities[cid])
 
         except KeyError:
             if load or auto_load:
                 try:
                     # have we joined this community
-                    classification, auto_load_flag, master_public_key = self._database.execute(u"SELECT community.classification, community.auto_load, member.public_key FROM community JOIN member ON member.id = community.master WHERE mid = ?",
-                                                                                               (buffer(cid),)).next()
-
-                except StopIteration:
+                    classification, auto_load_flag, master_public_key = yield self._database.stormdb.fetchone(
+                        u"""
+                          SELECT community.classification, community.auto_load, member.public_key
+                          FROM community
+                          JOIN member ON member.id = community.master
+                          WHERE mid = ?
+                        """,
+                        (buffer(cid),))
+                except TypeError:
                     pass
 
                 else:
                     if load or (auto_load and auto_load_flag):
-
                         if classification in self._auto_load_communities:
-                            master = self.get_member(public_key=str(master_public_key)) if master_public_key else self.get_member(mid=cid)
+                            master = yield self.get_member(public_key=str(master_public_key)) if master_public_key else self.get_member(mid=cid)
                             cls, my_member, args, kargs = self._auto_load_communities[classification]
-                            community = cls.init_community(self, master, my_member, *args, **kargs)
+                            community = yield cls.init_community(self, master, my_member, *args, **kargs)
                             assert master.mid in self._communities
-                            return community
+                            returnValue(community)
 
                         else:
                             self._logger.warning("unable to auto load %s is an undefined classification [%s]",
@@ -693,6 +713,8 @@ class Dispersy(TaskManager):
         """
         return self._communities.values()
 
+    @inlineCallbacks
+    # TODO(Laurens): This method is never called?
     def get_message(self, community, member, global_time):
         """
         Returns a Member.Implementation instance uniquely identified by its community, member, and
@@ -704,24 +726,30 @@ class Dispersy(TaskManager):
         assert isinstance(member, Member)
         assert isinstance(global_time, (int, long))
         try:
-            packet, = self._database.execute(u"SELECT packet FROM sync WHERE community = ? AND member = ? AND global_time = ?",
-                                             (community.database_id, member.database_id, global_time)).next()
-        except StopIteration:
-            return None
+            packet, = yield self._database.stormdb.fetchone(
+                u"SELECT packet FROM sync WHERE community = ? AND member = ? AND global_time = ?",
+                (community.database_id, member.database_id, global_time))
+        except TypeError:
+            returnValue(None)
         else:
-            return self.convert_packet_to_message(str(packet), community)
+            message = yield self.convert_packet_to_message(str(packet), community)
+            returnValue(message)
 
+    @inlineCallbacks
+    # TODO(Laurens): This method is never called?
     def get_last_message(self, community, member, meta):
         assert isinstance(community, Community)
         assert isinstance(member, Member)
         assert isinstance(meta, Message)
         try:
-            packet, = self._database.execute(u"SELECT packet FROM sync WHERE member = ? AND meta_message = ? ORDER BY global_time DESC LIMIT 1",
-                                             (member.database_id, meta.database_id)).next()
-        except StopIteration:
-            return None
+            packet, = yield self._database.stormdb.fetchone(
+                u"SELECT packet FROM sync WHERE member = ? AND meta_message = ? ORDER BY global_time DESC LIMIT 1",
+                (member.database_id, meta.database_id))
+        except TypeError:
+            returnValue(None)
         else:
-            return self.convert_packet_to_message(str(packet), community)
+            message = yield self.convert_packet_to_message(str(packet), community)
+            returnValue(message)
 
     def wan_address_unvote(self, voter):
         """
@@ -846,6 +874,7 @@ class Dispersy(TaskManager):
         else:
             set_connection_type(u"unknown")
 
+    @inlineCallbacks
     def _is_duplicate_sync_message(self, message):
         """
         Returns True when this message is a duplicate, otherwise the message must be processed.
@@ -884,11 +913,11 @@ class Dispersy(TaskManager):
         community = message.community
         # fetch the duplicate binary packet from the database
         try:
-            have_packet, undone = self._database.execute(u"SELECT packet, undone FROM sync WHERE community = ? AND member = ? AND global_time = ?",
-                                                        (community.database_id, message.authentication.member.database_id, message.distribution.global_time)).next()
-        except StopIteration:
+            have_packet, undone = yield self._database.stormdb.fetchone(u"SELECT packet, undone FROM sync WHERE community = ? AND member = ? AND global_time = ?",
+                                                        (community.database_id, message.authentication.member.database_id, message.distribution.global_time))
+        except TypeError:
             self._logger.debug("this message is not a duplicate")
-            return False
+            returnValue(False)
 
         else:
             have_packet = str(have_packet)
@@ -903,11 +932,11 @@ class Dispersy(TaskManager):
 
                 if undone:
                     try:
-                        proof, = self._database.execute(u"SELECT packet FROM sync WHERE id = ?", (undone,)).next()
-                    except StopIteration:
+                        proof, = yield self._database.stormdb.fetchone(u"SELECT packet FROM sync WHERE id = ?", (undone,))
+                    except TypeError:
                         pass
                     else:
-                        self._send_packets([message.candidate], [str(proof)], community, "-caused by duplicate-undo-")
+                        yield self._send_packets([message.candidate], [str(proof)], community, "-caused by duplicate-undo-")
 
             else:
                 signature_length = message.authentication.member.signature_length
@@ -922,7 +951,7 @@ class Dispersy(TaskManager):
 
                     if have_packet < message.packet:
                         # replace our current message with the other one
-                        self._database.execute(u"UPDATE sync SET packet = ? WHERE community = ? AND member = ? AND global_time = ?",
+                        yield self._database.stormdb.execute(u"UPDATE sync SET packet = ? WHERE community = ? AND member = ? AND global_time = ?",
                                                (buffer(message.packet), community.database_id, message.authentication.member.database_id, message.distribution.global_time))
 
                         # notify that global times have changed
@@ -933,9 +962,10 @@ class Dispersy(TaskManager):
                                          "  possibly malicious behaviour", message.candidate)
 
             # this message is a duplicate
-            return True
+            returnValue(True)
 
     @attach_runtime_statistics(u"{0.__class__.__name__}._check_distribution full_sync")
+    @inlineCallbacks
     def _check_full_sync_distribution_batch(self, messages):
         """
         Ensure that we do not yet have the messages and that, if sequence numbers are enabled, we
@@ -960,7 +990,9 @@ class Dispersy(TaskManager):
         # a message is considered unique when (creator, global-time),
         # i.e. (authentication.member.database_id, distribution.global_time), is unique.
         unique = set()
-        execute = self._database.execute
+        execute = self._database.stormdb.execute
+        fetchone = self._database.stormdb.fetchone
+
         enable_sequence_number = messages[0].meta.distribution.enable_sequence_number
 
         # sort the messages by their (1) global_time and (2) binary packet
@@ -969,29 +1001,30 @@ class Dispersy(TaskManager):
         # refuse messages where the global time is unreasonably high
         acceptable_global_time = messages[0].community.acceptable_global_time
 
+        return_list = []
         if enable_sequence_number:
             # obtain the highest sequence_number from the database
             highest = {}
             for message in messages:
                 if not message.authentication.member.database_id in highest:
-                    last_global_time, last_seq, count = execute(u"SELECT MAX(global_time), MAX(sequence), COUNT(*) FROM sync WHERE member = ? AND meta_message = ?",
-                                                    (message.authentication.member.database_id, message.database_id)).next()
+                    last_global_time, last_seq, count = yield fetchone(u"SELECT MAX(global_time), MAX(sequence), COUNT(*) FROM sync WHERE member = ? AND meta_message = ?",
+                                                    (message.authentication.member.database_id, message.database_id))
                     highest[message.authentication.member.database_id] = (last_global_time or 0, last_seq or 0)
                     assert last_seq or 0 == count, [last_seq, count, message.name]
 
             # all messages must follow the sequence_number order
             for message in messages:
                 if message.distribution.global_time > acceptable_global_time:
-                    yield DropMessage(message, "global time is not within acceptable range (%d, we accept %d)" % (message.distribution.global_time, acceptable_global_time))
+                    return_list.append(DropMessage(message, "global time is not within acceptable range (%d, we accept %d)" % (message.distribution.global_time, acceptable_global_time)))
                     continue
 
                 if not message.distribution.pruning.is_active():
-                    yield DropMessage(message, "message has been pruned")
+                    return_list.append(DropMessage(message, "message has been pruned"))
                     continue
 
                 key = (message.authentication.member.database_id, message.distribution.global_time)
                 if key in unique:
-                    yield DropMessage(message, "duplicate message by member^global_time (1)")
+                    return_list.append(DropMessage(message, "duplicate message by member^global_time (1)"))
                     continue
 
                 unique.add(key)
@@ -1001,11 +1034,11 @@ class Dispersy(TaskManager):
                     # we already have this message (drop)
 
                     # fetch the corresponding packet from the database (it should be binary identical)
-                    global_time, packet = execute(u"SELECT global_time, packet FROM sync WHERE member = ? AND meta_message = ? ORDER BY global_time, packet LIMIT 1 OFFSET ?",
-                                                  (message.authentication.member.database_id, message.database_id, message.distribution.sequence_number - 1)).next()
+                    global_time, packet = yield fetchone(u"SELECT global_time, packet FROM sync WHERE member = ? AND meta_message = ? ORDER BY global_time, packet LIMIT 1 OFFSET ?",
+                                                  (message.authentication.member.database_id, message.database_id, message.distribution.sequence_number - 1))
                     packet = str(packet)
                     if message.packet == packet:
-                        yield DropMessage(message, "duplicate message by binary packet")
+                        return_list.append(DropMessage(message, "duplicate message by binary packet"))
                         continue
 
                     else:
@@ -1014,73 +1047,77 @@ class Dispersy(TaskManager):
                         if (global_time, packet) < (message.distribution.global_time, message.packet):
                             # we keep PACKET (i.e. the message that we currently have in our database)
                             # reply with the packet to let the peer know
-                            self._send_packets([message.candidate], [packet],
+                            yield self._send_packets([message.candidate], [packet],
                                 message.community, "-caused by check_full_sync-")
-                            yield DropMessage(message, "duplicate message by sequence number (1)")
+                            return_list.append(DropMessage(message, "duplicate message by sequence number (1)"))
                             continue
 
                         else:
                             # TODO we should undo the messages that we are about to remove (when applicable)
-                            execute(u"DELETE FROM sync WHERE member = ? AND meta_message = ? AND global_time >= ?",
+                            yield execute(u"DELETE FROM sync WHERE member = ? AND meta_message = ? AND global_time >= ?",
                                     (message.authentication.member.database_id, message.database_id, global_time))
 
                             # by deleting messages we changed SEQ and the HIGHEST cache
-                            last_global_time, last_seq, count = execute(u"SELECT MAX(global_time), MAX(sequence), COUNT(*) FROM sync WHERE member = ? AND meta_message = ?",
-                                                           (message.authentication.member.database_id, message.database_id)).next()
+                            last_global_time, last_seq, count = yield fetchone(u"SELECT MAX(global_time), MAX(sequence), COUNT(*) FROM sync WHERE member = ? AND meta_message = ?",
+                                                           (message.authentication.member.database_id, message.database_id))
                             highest[message.authentication.member.database_id] = (last_global_time or 0, last_seq or 0)
                             assert last_seq or 0 == count, [last_seq, count, message.name]
                             # we can allow MESSAGE to be processed
 
                 elif seq + 1 != message.distribution.sequence_number:
                     # we do not have the previous message (delay and request)
-                    yield DelayMessageBySequence(message, seq + 1, message.distribution.sequence_number - 1)
+                    return_list.append(DelayMessageBySequence(message, seq + 1, message.distribution.sequence_number - 1))
                     continue
 
                 # we have the previous message, check for duplicates based on community,
                 # member, and global_time
-                if self._is_duplicate_sync_message(message):
+                is_duplicate_sync_message = yield self._is_duplicate_sync_message(message)
+                if is_duplicate_sync_message:
                     # we have the previous message (drop)
-                    yield DropMessage(message, "duplicate message by global_time (1)")
+                    return_list.append(DropMessage(message, "duplicate message by global_time (1)"))
                     continue
 
                 # ensure that MESSAGE.distribution.global_time > LAST_GLOBAL_TIME
                 if last_global_time and message.distribution.global_time <= last_global_time:
                     self._logger.debug("last_global_time: %d  message @%d",
                                        last_global_time, message.distribution.global_time)
-                    yield DropMessage(message, "higher sequence number with lower global time than most recent message")
+                    return_list.append(DropMessage(message, "higher sequence number with lower global time than most recent message"))
                     continue
 
                 # we accept this message
                 highest[message.authentication.member.database_id] = (message.distribution.global_time, seq + 1)
-                yield message
+                return_list.append(message)
 
         else:
             for message in messages:
                 if message.distribution.global_time > acceptable_global_time:
-                    yield DropMessage(message, "global time is not within acceptable range")
+                    return_list.append(DropMessage(message, "global time is not within acceptable range"))
                     continue
 
                 if not message.distribution.pruning.is_active():
-                    yield DropMessage(message, "message has been pruned")
+                    return_list.append(DropMessage(message, "message has been pruned"))
                     continue
 
                 key = (message.authentication.member.database_id, message.distribution.global_time)
                 if key in unique:
-                    yield DropMessage(message, "duplicate message by member^global_time (2)")
+                    return_list.append(DropMessage(message, "duplicate message by member^global_time (2)"))
                     continue
 
                 unique.add(key)
 
                 # check for duplicates based on community, member, and global_time
-                if self._is_duplicate_sync_message(message):
+                is_duplicate_sync_message = yield self._is_duplicate_sync_message(message)
+                if is_duplicate_sync_message:
                     # we have the previous message (drop)
-                    yield DropMessage(message, "duplicate message by global_time (2)")
+                    return_list.append(DropMessage(message, "duplicate message by global_time (2)"))
                     continue
 
                 # we accept this message
-                yield message
+                return_list.append(message)
+        returnValue(iter(return_list))
 
     @attach_runtime_statistics(u"{0.__class__.__name__}._check_distribution last_sync")
+    @inlineCallbacks
     def _check_last_sync_distribution_batch(self, messages):
         """
         Check that the messages do not violate any database consistency rules.
@@ -1117,6 +1154,7 @@ class Dispersy(TaskManager):
         assert all(message.meta == messages[0].meta for message in messages)
         assert all(isinstance(message.authentication, (MemberAuthentication.Implementation, DoubleMemberAuthentication.Implementation)) for message in messages)
 
+        @inlineCallbacks
         def check_member_and_global_time(unique, times, message):
             """
             The member + global_time combination must always be unique in the database
@@ -1128,19 +1166,21 @@ class Dispersy(TaskManager):
 
             key = (message.authentication.member.database_id, message.distribution.global_time)
             if key in unique:
-                return DropMessage(message, "already processed message by member^global_time")
+                returnValue(DropMessage(message, "already processed message by member^global_time"))
 
             else:
                 unique.add(key)
 
                 if not message.authentication.member.database_id in times:
-                    times[message.authentication.member.database_id] = [global_time for global_time, in self._database.execute(u"SELECT global_time FROM sync WHERE community = ? AND member = ? AND meta_message = ?",
-                                                                                                                               (message.community.database_id, message.authentication.member.database_id, message.database_id))]
+                    sync_packets = yield self._database.stormdb.fetchall(u"SELECT global_time FROM sync WHERE community = ? AND member = ? AND meta_message = ?",
+                                                                                                                               (message.community.database_id, message.authentication.member.database_id, message.database_id))
+                    times[message.authentication.member.database_id] = [global_time for global_time, in sync_packets]
                     assert len(times[message.authentication.member.database_id]) <= message.distribution.history_size, [message.packet_id, message.distribution.history_size, times[message.authentication.member.database_id]]
                 tim = times[message.authentication.member.database_id]
 
-                if message.distribution.global_time in tim and self._is_duplicate_sync_message(message):
-                    return DropMessage(message, "duplicate message by member^global_time (3)")
+                is_duplicate_sync_message = yield self._is_duplicate_sync_message(message)
+                if message.distribution.global_time in tim and is_duplicate_sync_message:
+                    returnValue(DropMessage(message, "duplicate message by member^global_time (3)"))
 
                 elif len(tim) >= message.distribution.history_size and min(tim) > message.distribution.global_time:
                     # we have newer messages (drop)
@@ -1149,23 +1189,24 @@ class Dispersy(TaskManager):
                     # apparently the sender does not have this message yet
                     if message.distribution.history_size == 1:
                         try:
-                            packet, = self._database.execute(u"SELECT packet FROM sync WHERE community = ? AND member = ? ORDER BY global_time DESC LIMIT 1",
-                                                             (message.community.database_id, message.authentication.member.database_id)).next()
-                        except StopIteration:
+                            packet, = yield self._database.stormdb.fetchone(u"SELECT packet FROM sync WHERE community = ? AND member = ? ORDER BY global_time DESC LIMIT 1",
+                                                             (message.community.database_id, message.authentication.member.database_id))
+                        except TypeError:
                             # TODO can still fail when packet is in one of the received messages
                             # from this batch.
                             pass
                         else:
-                            self._send_packets([message.candidate], [str(packet)],
+                            yield self._send_packets([message.candidate], [str(packet)],
                                 message.community, "-caused by check_last_sync:check_member-")
 
-                    return DropMessage(message, "old message by member^global_time")
+                    returnValue(DropMessage(message, "old message by member^global_time"))
 
                 else:
                     # we accept this message
                     tim.append(message.distribution.global_time)
-                    return message
+                    returnValue(message)
 
+        @inlineCallbacks
         def check_double_member_and_global_time(unique, times, message):
             """
             No other message may exist with this message.authentication.members / global_time
@@ -1181,7 +1222,7 @@ class Dispersy(TaskManager):
                 self._logger.debug("drop %s %d@%d (in unique)",
                                    message.name, message.authentication.member.database_id,
                                    message.distribution.global_time)
-                return DropMessage(message, "already processed message by member^global_time")
+                returnValue(DropMessage(message, "already processed message by member^global_time"))
 
             else:
                 unique.add(key)
@@ -1191,31 +1232,33 @@ class Dispersy(TaskManager):
                 if key in unique:
                     self._logger.debug("drop %s %s@%d (in unique)",
                                        message.name, members, message.distribution.global_time)
-                    return DropMessage(message, "already processed message by members^global_time")
+                    returnValue(DropMessage(message, "already processed message by members^global_time"))
 
                 else:
                     unique.add(key)
-
-                    if self._is_duplicate_sync_message(message):
+                    is_duplicate_sync_message = yield self._is_duplicate_sync_message(message)
+                    if is_duplicate_sync_message:
                         # we have the previous message (drop)
                         self._logger.debug("drop %s %s@%d (_is_duplicate_sync_message)",
                                            message.name, members, message.distribution.global_time)
-                        return DropMessage(message, "duplicate message by member^global_time (4)")
+                        returnValue(DropMessage(message, "duplicate message by member^global_time (4)"))
 
                     if not members in times:
                         # the next query obtains a list with all global times that we have in the
                         # database for all message.meta messages that were signed by
                         # message.authentication.members where the order of signing is not taken
                         # into account.
+                        sync_packets = yield self._database.stormdb.fetchall(u"""
+                            SELECT sync.global_time, sync.id, sync.packet
+                            FROM sync
+                            JOIN double_signed_sync ON double_signed_sync.sync = sync.id
+                            WHERE sync.meta_message = ? AND double_signed_sync.member1 = ?
+                            AND double_signed_sync.member2 = ?
+                            """, (message.database_id,) + members)
+
                         times[members] = dict((global_time, (packet_id, str(packet)))
                                               for global_time, packet_id, packet
-                                              in self._database.execute(u"""
-SELECT sync.global_time, sync.id, sync.packet
-FROM sync
-JOIN double_signed_sync ON double_signed_sync.sync = sync.id
-WHERE sync.meta_message = ? AND double_signed_sync.member1 = ? AND double_signed_sync.member2 = ?
-""",
-                                                                        (message.database_id,) + members))
+                                              in sync_packets)
                         assert len(times[members]) <= message.distribution.history_size, [len(times[members]),
                                                                                          message.distribution.history_size]
                     tim = times[members]
@@ -1230,7 +1273,7 @@ WHERE sync.meta_message = ? AND double_signed_sync.member1 = ? AND double_signed
                                                members,
                                                message.distribution.global_time,
                                                message.candidate)
-                            return DropMessage(message, "duplicate message by binary packet (1)")
+                            returnValue(DropMessage(message, "duplicate message by binary packet (1)"))
 
                         else:
                             signature_length = sum(member.signature_length for member in message.authentication.members)
@@ -1246,18 +1289,18 @@ WHERE sync.meta_message = ? AND double_signed_sync.member1 = ? AND double_signed
 
                                 if have_packet < message.packet:
                                     # replace our current message with the other one
-                                    self._database.execute(u"UPDATE sync SET member = ?, packet = ? WHERE id = ?",
+                                    yield self._database.stormdb.execute(u"UPDATE sync SET member = ?, packet = ? WHERE id = ?",
                                                            (message.authentication.member.database_id, buffer(message.packet), packet_id))
 
-                                    return DropMessage(message, "replaced existing packet with other packet with the same payload")
+                                    returnValue(DropMessage(message, "replaced existing packet with other packet with the same payload"))
 
-                                return DropMessage(message, "not replacing existing packet with other packet with the same payload")
+                                returnValue(DropMessage(message, "not replacing existing packet with other packet with the same payload"))
 
                             else:
                                 self._logger.warning("received message with duplicate community/members/global-time"
                                                      " triplet from %s.  possibly malicious behavior",
                                                      message.candidate)
-                                return DropMessage(message, "duplicate message by binary packet (2)")
+                                returnValue(DropMessage(message, "duplicate message by binary packet (2)"))
 
                     elif len(tim) >= message.distribution.history_size and min(tim) > message.distribution.global_time:
                         # we have newer messages (drop)
@@ -1266,18 +1309,18 @@ WHERE sync.meta_message = ? AND double_signed_sync.member1 = ? AND double_signed
                         # apparently the sender does not have this message yet
                         if message.distribution.history_size == 1:
                             packet_id, have_packet = tim.values()[0]
-                            self._send_packets([message.candidate], [have_packet],
+                            yield self._send_packets([message.candidate], [have_packet],
                                 message.community, "-caused by check_last_sync:check_double_member-")
 
                         self._logger.debug("drop %s %s@%d (older than %s)",
                                            message.name, members, message.distribution.global_time, min(tim))
-                        return DropMessage(message, "old message by members^global_time")
+                        returnValue(DropMessage(message, "old message by members^global_time"))
 
                     else:
                         # we accept this message
                         self._logger.debug("accept %s %s@%d", message.name, members, message.distribution.global_time)
                         tim[message.distribution.global_time] = (0, message.packet)
-                        return message
+                        returnValue(message)
 
         # meta message
         meta = messages[0].meta
@@ -1305,7 +1348,14 @@ WHERE sync.meta_message = ? AND double_signed_sync.member1 = ? AND double_signed
             # function
             unique = set()
             times = {}
-            messages = [message if isinstance(message, DropMessage) else check_member_and_global_time(unique, times, message) for message in messages]
+            new_messages = []
+            for message in messages:
+                if isinstance(message, DropMessage):
+                    new_messages.append(message)
+                else:
+                    m = yield check_member_and_global_time(unique, times, message)
+                    new_messages.append(m)
+            messages = new_messages
 
         # instead of storing HISTORY_SIZE messages for each authentication.member, we will store
         # HISTORY_SIZE messages for each combination of authentication.members.
@@ -1313,11 +1363,18 @@ WHERE sync.meta_message = ? AND double_signed_sync.member1 = ? AND double_signed
             assert isinstance(meta.authentication, DoubleMemberAuthentication)
             unique = set()
             times = {}
-            messages = [message if isinstance(message, DropMessage) else check_double_member_and_global_time(unique, times, message) for message in messages]
+            new_messages = []
+            for message in messages:
+                if isinstance(message, DropMessage):
+                    new_messages.append(message)
+                else:
+                    m = yield check_double_member_and_global_time(unique, times, message)
+                    new_messages.append(m)
+            messages = new_messages
 
-        return messages
+        returnValue(messages)
 
-    @attach_runtime_statistics(u"{0.__class__.__name__}._check_distribution direct")
+    #@attach_runtime_statistics(u"{0.__class__.__name__}._check_distribution direct")
     def _check_direct_distribution_batch(self, messages):
         """
         Returns the messages in the correct processing order.
@@ -1350,6 +1407,7 @@ WHERE sync.meta_message = ? AND double_signed_sync.member1 = ? AND double_signed
 
         return messages
 
+    @inlineCallbacks
     def load_message(self, community, member, global_time, verify=False):
         """
         Returns the message identified by community, member, and global_time.
@@ -1364,17 +1422,19 @@ WHERE sync.meta_message = ? AND double_signed_sync.member1 = ? AND double_signed
         assert isinstance(global_time, (int, long)), type(global_time)
 
         try:
-            packet_id, packet, undone = self._database.execute(u"SELECT id, packet, undone FROM sync WHERE community = ? AND member = ? AND global_time = ? LIMIT 1",
-                                                       (community.database_id, member.database_id, global_time)).next()
-        except StopIteration:
-            return None
+            packet_id, packet, undone = yield self._database.stormdb.fetchone(
+                u"SELECT id, packet, undone FROM sync WHERE community = ? AND member = ? AND global_time = ? LIMIT 1",
+                (community.database_id, member.database_id, global_time))
+        except TypeError:
+            returnValue(None)
 
-        message = self.convert_packet_to_message(str(packet), community, verify=verify)
+        message = yield self.convert_packet_to_message(str(packet), community, verify=verify)
         if message:
             message.packet_id = packet_id
             message.undone = undone
-            return message
+            returnValue(message)
 
+    @inlineCallbacks
     def load_message_by_packetid(self, community, packet_id, verify=False):
         """
         Returns the message identified by community, member, and global_time.
@@ -1388,17 +1448,18 @@ WHERE sync.meta_message = ? AND double_signed_sync.member1 = ? AND double_signed
         assert isinstance(packet_id, (int, long)), type(packet_id)
 
         try:
-            packet, undone = self._database.execute(u"SELECT packet, undone FROM sync WHERE id = ?",
-                                                       (packet_id,)).next()
-        except StopIteration:
-            return None
+            packet, undone = yield self._database.stormdb.fetchone(u"SELECT packet, undone FROM sync WHERE id = ?",
+                                                       (packet_id,))
+        except TypeError:
+            returnValue(None)
 
-        message = self.convert_packet_to_message(str(packet), community, verify=verify)
+        message = yield self.convert_packet_to_message(str(packet), community, verify=verify)
         if message:
             message.packet_id = packet_id
             message.undone = undone
-            return message
+            returnValue(message)
 
+    @inlineCallbacks
     def convert_packet_to_message(self, packet, community=None, load=True, auto_load=True, candidate=None, verify=True):
         """
         Returns the Message.Implementation representing the packet or None when no conversion is
@@ -1413,11 +1474,12 @@ WHERE sync.meta_message = ? AND double_signed_sync.member1 = ? AND double_signed
         # find associated community
         try:
             if not community:
-                community = self.get_community(packet[2:22], load, auto_load)
+                community = yield self.get_community(packet[2:22], load, auto_load)
 
             # find associated conversion
             conversion = community.get_conversion_for_packet(packet)
-            return conversion.decode_message(LoopbackCandidate() if candidate is None else candidate, packet, verify)
+            decoded_message = yield conversion.decode_message(LoopbackCandidate() if candidate is None else candidate, packet, verify)
+            returnValue(decoded_message)
 
         except CommunityNotFoundException:
             self._logger.warning("unable to convert a %d byte packet (unknown community)", len(packet))
@@ -1425,8 +1487,9 @@ WHERE sync.meta_message = ? AND double_signed_sync.member1 = ? AND double_signed
             self._logger.warning("unable to convert a %d byte packet (unknown conversion)", len(packet))
         except (DropPacket, DelayPacket) as exception:
             self._logger.warning("unable to convert a %d byte packet (%s)", len(packet), exception)
-        return None
+        returnValue(None)
 
+    @inlineCallbacks
     def convert_packets_to_messages(self, packets, community=None, load=True, auto_load=True, candidate=None, verify=True):
         """
         Returns a list with messages representing each packet or None when no conversion is
@@ -1434,8 +1497,13 @@ WHERE sync.meta_message = ? AND double_signed_sync.member1 = ? AND double_signed
         """
         assert isinstance(packets, Iterable), type(packets)
         assert all(isinstance(packet, str) for packet in packets), [type(packet) for packet in packets]
-        return [self.convert_packet_to_message(packet, community, load, auto_load, candidate, verify) for packet in packets]
+        return_messages = []
+        for packet in packets:
+            message = yield self.convert_packet_to_message(packet, community, load, auto_load, candidate, verify)
+            return_messages.append(message)
+        returnValue(return_messages)
 
+    @inlineCallbacks
     def on_incoming_packets(self, packets, cache=True, timestamp=0.0, source=u"unknown"):
         """
         Process incoming UDP packets.
@@ -1477,8 +1545,8 @@ WHERE sync.meta_message = ? AND double_signed_sync.member1 = ? AND double_signed
             for community_id, iterator in groupby(sorted(packets, key=sort_key), key=groupby_key):
                 # find associated community
                 try:
-                    community = self.get_community(community_id)
-                    community.on_incoming_packets(list(iterator), cache, timestamp, source)
+                    community = yield self.get_community(community_id)
+                    yield community.on_incoming_packets(list(iterator), cache, timestamp, source)
 
                 except CommunityNotFoundException:
                     packets = list(iterator)
@@ -1491,6 +1559,7 @@ WHERE sync.meta_message = ? AND double_signed_sync.member1 = ? AND double_signed
             self._logger.info("dropping %d packets as dispersy is not running", len(packets))
 
     @attach_runtime_statistics(u"Dispersy.{function_name} {1[0].name}")
+    @inlineCallbacks
     def _store(self, messages):
         """
         Store a message in the database.
@@ -1536,7 +1605,7 @@ WHERE sync.meta_message = ? AND double_signed_sync.member1 = ? AND double_signed
                                message.authentication.member.database_id, message.distribution.global_time)
 
             # add packet to database
-            message.packet_id = self._database.execute(
+            message.packet_id = yield self._database.stormdb.execute(
                 u"INSERT INTO sync (community, member, global_time, meta_message, packet, sequence) "
                 u"VALUES (?, ?, ?, ?, ?, ?)",
                (message.community.database_id,
@@ -1555,8 +1624,12 @@ WHERE sync.meta_message = ? AND double_signed_sync.member1 = ? AND double_signed
             if is_double_member_authentication:
                 member1 = message.authentication.members[0].database_id
                 member2 = message.authentication.members[1].database_id
-                self._database.execute(u"INSERT INTO double_signed_sync (sync, member1, member2) VALUES (?, ?, ?)",
-                                       (message.packet_id, member1, member2) if member1 < member2 else (message.packet_id, member2, member1))
+                if member1 < member2:
+                    yield self._database.stormdb.insert(u"double_signed_sync", sync=message.packet_id, member1=member1,
+                                                  member2=member2)
+                else:
+                    yield self._database.stormdb.insert(u"double_signed_sync", sync=message.packet_id, member1=member2,
+                                                  member2=member1)
 
             # update global time
             highest_global_time = max(highest_global_time, message.distribution.global_time)
@@ -1568,9 +1641,9 @@ WHERE sync.meta_message = ? AND double_signed_sync.member1 = ? AND double_signed
             # when sequence numbers are enabled, we must have exactly
             # message.distribution.sequence_number messages in the database
             for member_id, max_sequence_number in highest_sequence_number.iteritems():
-                count_, = self._database.execute(u"SELECT COUNT(*) FROM sync "
+                count_, = yield self._database.stormdb.fetchone(u"SELECT COUNT(*) FROM sync "
                                                 u"WHERE meta_message = ? AND member = ? AND sequence BETWEEN 1 AND ?",
-                                                (message.database_id, member_id, max_sequence_number)).next()
+                                                (message.database_id, member_id, max_sequence_number))
                 assert count_ == max_sequence_number, [count_, max_sequence_number]
 
         if isinstance(meta.distribution, LastSyncDistribution):
@@ -1586,30 +1659,30 @@ WHERE sync.meta_message = ? AND double_signed_sync.member1 = ? AND double_signed
                     order = lambda member1, member2: (member1, member2) if member1 < member2 else (member2, member1)
                     for member1, member2 in set(order(message.authentication.members[0].database_id, message.authentication.members[1].database_id) for message in messages):
                         assert member1 < member2, [member1, member2]
-                        all_items = list(self._database.execute(u"""
+                        all_items = yield self._database.stormdb.fetchall(u"""
 SELECT sync.id, sync.global_time
 FROM sync
 JOIN double_signed_sync ON double_signed_sync.sync = sync.id
 WHERE sync.meta_message = ? AND double_signed_sync.member1 = ? AND double_signed_sync.member2 = ?
-ORDER BY sync.global_time, sync.packet""", (meta.database_id, member1, member2)))
+ORDER BY sync.global_time, sync.packet""", (meta.database_id, member1, member2))
                         if len(all_items) > meta.distribution.history_size:
                             items.update(all_items[:len(all_items) - meta.distribution.history_size])
 
                 else:
                     for member_database_id in set(message.authentication.member.database_id for message in messages):
-                        all_items = list(self._database.execute(u"""
+                        all_items = yield self._database.stormdb.fetchall(u"""
 SELECT id, global_time
 FROM sync
 WHERE meta_message = ? AND member = ?
-ORDER BY global_time""", (meta.database_id, member_database_id)))
+ORDER BY global_time""", (meta.database_id, member_database_id))
                         if len(all_items) > meta.distribution.history_size:
                             items.update(all_items[:len(all_items) - meta.distribution.history_size])
 
             if items:
-                self._database.executemany(u"DELETE FROM sync WHERE id = ?", [(syncid,) for syncid, _ in items])
+                yield self._database.stormdb.executemany(u"DELETE FROM sync WHERE id = ?", [(syncid,) for syncid, _ in items])
 
                 if is_double_member_authentication:
-                    self._database.executemany(u"DELETE FROM double_signed_sync WHERE sync = ?", [(syncid,) for syncid, _ in items])
+                    yield self._database.stormdb.executemany(u"DELETE FROM double_signed_sync WHERE sync = ?", [(syncid,) for syncid, _ in items])
 
                 # update_sync_range.update(global_time for _, _, global_time in items)
 
@@ -1617,11 +1690,11 @@ ORDER BY global_time""", (meta.database_id, member_database_id)))
             if __debug__:
                 if not is_double_member_authentication and meta.distribution.custom_callback is None:
                     for message in messages:
-                        history_size, = self._database.execute(u"SELECT COUNT(*) FROM sync WHERE meta_message = ? AND member = ?", (message.database_id, message.authentication.member.database_id)).next()
+                        history_size, = yield self._database.stormdb.fetchone(u"SELECT COUNT(*) FROM sync WHERE meta_message = ? AND member = ?", (message.database_id, message.authentication.member.database_id))
                         assert history_size <= message.distribution.history_size, [history_size, message.distribution.history_size, message.authentication.member.database_id]
 
         # update the global time
-        meta.community.update_global_time(highest_global_time)
+        yield meta.community.update_global_time(highest_global_time)
 
         meta.community.dispersy_store(messages)
 
@@ -1657,6 +1730,7 @@ ORDER BY global_time""", (meta.database_id, member_database_id)))
         return lan_address, wan_address
 
     # TODO(emilon): Now that we have removed the malicious behaviour stuff, maybe we could be a bit more relaxed with the DB syncing?
+    @inlineCallbacks
     def store_update_forward(self, possibly_messages, store, update, forward):
         """
         Usually we need to do three things when we have a valid messages: (1) store it in our local
@@ -1711,11 +1785,12 @@ ORDER BY global_time""", (meta.database_id, member_database_id)))
 
         store = store and isinstance(messages[0].meta.distribution, SyncDistribution)
         if store:
-            self._store(messages)
+            yield self._store(messages)
 
         if update:
-            if self._update(possibly_messages) == False:
-                return False
+            update_res = yield self._update(possibly_messages)
+            if update_res == False:
+                returnValue(False)
 
         # 07/10/11 Boudewijn: we will only commit if it the message was create by our self.
         # Otherwise we can safely skip the commit overhead, since, if a crash occurs, we will be
@@ -1729,25 +1804,28 @@ ORDER BY global_time""", (meta.database_id, member_database_id)))
                 messages[0].community.statistics.increase_msg_count(u"created", messages[0].meta.name, my_messages)
 
         if forward:
-            return self._forward(messages)
+            forward_result = yield self._forward(messages)
+            returnValue(forward_result)
 
-        return True
+        returnValue(True)
 
     @attach_runtime_statistics(u"Dispersy.{function_name} {1[0].name}")
+    @inlineCallbacks
     def _update(self, messages):
         """
         Call the handle callback of a list of messages of the same type.
         """
         try:
-            messages[0].handle_callback(messages)
-            return True
+            yield messages[0].handle_callback(messages)
+            returnValue(True)
         except (SystemExit, KeyboardInterrupt, GeneratorExit, AssertionError):
             raise
-        except:
+        except Exception:
             self._logger.exception("exception during handle_callback for %s", messages[0].name)
-            return False
+            returnValue(False)
 
     @attach_runtime_statistics(u"Dispersy.{function_name} {1[0].name}")
+    @inlineCallbacks
     def _forward(self, messages):
         """
         Queue a sequence of messages to be sent to other members.
@@ -1786,12 +1864,14 @@ ORDER BY global_time""", (meta.database_id, member_database_id)))
                             candidates.add(candidate)
                         else:
                             break
-                result = result and self._send(tuple(candidates), [message])
+                send_result = yield self._send(tuple(candidates), [message])
+                result = result and send_result
         else:
             raise NotImplementedError(meta.destination)
 
-        return result
+        returnValue(result)
 
+    @inlineCallbacks
     def _delay(self, delay, packet, candidate):
         for key in delay.match_info:
             assert len(key) == 5, key
@@ -1805,11 +1885,12 @@ ORDER BY global_time""", (meta.database_id, member_database_id)))
 
 
             try:
-                community = self.get_community(key[0], load=False, auto_load=False)
-                community._delay(key[1:], delay, packet, candidate)
+                community = yield self.get_community(key[0], load=False, auto_load=False)
+                yield community._delay(key[1:], delay, packet, candidate)
             except CommunityNotFoundException:
                 self._logger.error('Messages can only be delayed for loaded communities.')
 
+    @inlineCallbacks
     def _send(self, candidates, messages):
         """
         Send a list of messages to a list of candidates. If no candidates are specified or endpoint reported
@@ -1832,7 +1913,7 @@ ORDER BY global_time""", (meta.database_id, member_database_id)))
         messages_send = False
         if len(candidates) and len(messages):
             packets = [message.packet for message in messages]
-            messages_send = self._endpoint.send(candidates, packets)
+            messages_send = yield self._endpoint.send(candidates, packets)
 
         if messages_send:
             for message in messages:
@@ -1848,14 +1929,16 @@ ORDER BY global_time""", (meta.database_id, member_database_id)))
                 message.community.statistics.increase_msg_count(
                     u"outgoing", message.meta.name, len(candidates))
 
-        return messages_send
+        returnValue(messages_send)
 
+    @inlineCallbacks
     def _send_packets(self, candidates, packets, community, msg_type):
         """A wrap method to use send() in endpoint.
         """
-        self._endpoint.send(candidates, packets)
+        yield self._endpoint.send(candidates, packets)
         community.statistics.increase_msg_count(u"outgoing", msg_type, len(candidates) * len(packets))
 
+    @inlineCallbacks
     def sanity_check(self, community, test_identity=True, test_undo_other=True, test_binary=False, test_sequence_number=True, test_last_sync=True):
         """
         Check everything we can about a community.
@@ -1869,12 +1952,14 @@ ORDER BY global_time""", (meta.database_id, member_database_id)))
         - check sequence numbers for FullSyncDistribution
         - check history size for LastSyncDistribution
         """
-        def select(sql, bindings):
+
+        @inlineCallbacks
+        def fetchall(sql, bindings):
             assert isinstance(sql, unicode)
             assert isinstance(bindings, tuple)
             limit = 1000
             for offset in (i * limit for i in count()):
-                rows = list(self._database.execute(sql, bindings + (limit, offset)))
+                rows = yield self._database.stormdb.fetchall(sql, bindings + (limit, offset))
                 if rows:
                     for row in rows:
                         yield row
@@ -1890,21 +1975,21 @@ ORDER BY global_time""", (meta.database_id, member_database_id)))
                 meta_identity = community.get_meta_message(u"dispersy-identity")
 
                 try:
-                    member_id, = self._database.execute(u"SELECT id FROM member WHERE mid = ?", (buffer(community.my_member.mid),)).next()
-                except StopIteration:
+                    member_id, = yield self._database.stormdb.fetchone(u"SELECT id FROM member WHERE mid = ?", (buffer(community.my_member.mid),))
+                except TypeError:
                     raise ValueError("unable to find the public key for my member")
 
                 if not member_id == community.my_member.database_id:
                     raise ValueError("my member's database id is invalid", member_id, community.my_member.database_id)
 
                 try:
-                    self._database.execute(u"SELECT 1 FROM member WHERE id = ? AND private_key IS NOT NULL", (member_id,)).next()
-                except StopIteration:
+                    _, = yield self._database.stormdb.fetchone(u"SELECT 1 FROM member WHERE id = ? AND private_key IS NOT NULL", (member_id,))
+                except TypeError:
                     raise ValueError("unable to find the private key for my member")
 
                 try:
-                    self._database.execute(u"SELECT 1 FROM sync WHERE member = ? AND meta_message = ?", (member_id, meta_identity.database_id)).next()
-                except StopIteration:
+                    _, = yield self._database.stormdb.fetchone(u"SELECT 1 FROM sync WHERE member = ? AND meta_message = ?", (member_id, meta_identity.database_id))
+                except TypeError:
                     raise ValueError("unable to find the dispersy-identity message for my member")
 
                 self._logger.debug("my identity is OK")
@@ -1913,8 +1998,10 @@ ORDER BY global_time""", (meta.database_id, member_database_id)))
                 # the dispersy-identity must be in the database for each member that has one or more
                 # messages in the database
                 #
-                A = set(id_ for id_, in self._database.execute(u"SELECT member FROM sync WHERE community = ? GROUP BY member", (community.database_id,)))
-                B = set(id_ for id_, in self._database.execute(u"SELECT member FROM sync WHERE meta_message = ?", (meta_identity.database_id,)))
+                a_raw = yield fetchall(u"SELECT member FROM sync WHERE community = ? GROUP BY member", (community.database_id,))
+                A = set(id_ for id_, in a_raw)
+                b_raw = yield fetchall(u"SELECT member FROM sync WHERE meta_message = ?", (meta_identity.database_id,))
+                B = set(id_ for id_, in b_raw)
                 if not len(A) == len(B):
                     raise ValueError("inconsistent dispersy-identity messages.", A.difference(B))
 
@@ -1928,9 +2015,10 @@ ORDER BY global_time""", (meta.database_id, member_database_id)))
                 meta_undo_other = community.get_meta_message(u"dispersy-undo-other")
 
                 # TODO we are not taking into account that undo messages can be undone
-                for undo_packet_id, undo_packet_global_time, undo_packet in select(u"SELECT id, global_time, packet FROM sync WHERE community = ? AND meta_message = ? ORDER BY id LIMIT ? OFFSET ?", (community.database_id, meta_undo_other.database_id)):
+                sync_packets = yield fetchall(u"SELECT id, global_time, packet FROM sync WHERE community = ? AND meta_message = ? ORDER BY id LIMIT ? OFFSET ?", (community.database_id, meta_undo_other.database_id))
+                for undo_packet_id, undo_packet_global_time, undo_packet in sync_packets:
                     undo_packet = str(undo_packet)
-                    undo_message = self.convert_packet_to_message(undo_packet, community, verify=False)
+                    undo_message = yield self.convert_packet_to_message(undo_packet, community, verify=False)
 
                     # 10/10/12 Boudewijn: the check_callback is required to obtain the
                     # message.payload.packet
@@ -1939,11 +2027,14 @@ ORDER BY global_time""", (meta.database_id, member_database_id)))
 
                     # get the message that undo_message refers to
                     try:
-                        packet, undone = self._database.execute(u"SELECT packet, undone FROM sync WHERE community = ? AND member = ? AND global_time = ?", (community.database_id, undo_message.payload.member.database_id, undo_message.payload.global_time)).next()
-                    except StopIteration:
+                        packet, undone = yield self._database.stormdb.fetchone(
+                            u"SELECT packet, undone FROM sync WHERE community = ? AND member = ? AND global_time = ?",
+                            (community.database_id, undo_message.payload.member.database_id,
+                             undo_message.payload.global_time))
+                    except TypeError:
                         raise ValueError("found dispersy-undo-other but not the message that it refers to")
                     packet = str(packet)
-                    message = self.convert_packet_to_message(packet, community, verify=False)
+                    message = yield self.convert_packet_to_message(packet, community, verify=False)
 
                     if not undone:
                         raise ValueError("found dispersy-undo-other but the message that it refers to is not undone")
@@ -1976,10 +2067,11 @@ ORDER BY global_time""", (meta.database_id, member_database_id)))
             # ensure all packets in the database are valid and that the binary packets are consistent
             # with the information stored in the database
             #
-            for packet_id, member_id, global_time, meta_message_id, packet in select(u"SELECT id, member, global_time, meta_message, packet FROM sync WHERE community = ? ORDER BY id LIMIT ? OFFSET ?", (community.database_id,)):
+            sync_packets = yield fetchall(u"SELECT id, member, global_time, meta_message, packet FROM sync WHERE community = ? ORDER BY id LIMIT ? OFFSET ?", (community.database_id,))
+            for packet_id, member_id, global_time, meta_message_id, packet in sync_packets:
                 if meta_message_id in enabled_messages:
                     packet = str(packet)
-                    message = self.convert_packet_to_message(packet, community, verify=True)
+                    message = yield self.convert_packet_to_message(packet, community, verify=True)
 
                     if not message:
                         raise ValueError("unable to convert packet ", packet_id, "@", global_time, " to message")
@@ -2010,9 +2102,10 @@ ORDER BY global_time""", (meta.database_id, member_database_id)))
                     counter = 0
                     counter_member_id = 0
                     exception = None
-                    for packet_id, member_id, packet in select(u"SELECT id, member, packet FROM sync WHERE meta_message = ? ORDER BY member, global_time LIMIT ? OFFSET ?", (meta.database_id,)):
+                    sync_packets = yield fetchall(u"SELECT id, member, packet FROM sync WHERE meta_message = ? ORDER BY member, global_time LIMIT ? OFFSET ?", (meta.database_id,))
+                    for packet_id, member_id, packet in sync_packets:
                         packet = str(packet)
-                        message = self.convert_packet_to_message(packet, community, verify=False)
+                        message = yield self.convert_packet_to_message(packet, community, verify=False)
                         assert message
 
                         if member_id != counter_member_id:
@@ -2044,8 +2137,9 @@ ORDER BY global_time""", (meta.database_id, member_database_id)))
                     if isinstance(meta.authentication, MemberAuthentication):
                         counter = 0
                         counter_member_id = 0
-                        for packet_id, member_id, packet in select(u"SELECT id, member, packet FROM sync WHERE meta_message = ? ORDER BY member ASC, global_time DESC LIMIT ? OFFSET ?", (meta.database_id,)):
-                            message = self.convert_packet_to_message(str(packet), community, verify=False)
+                        sync_packets = yield fetchall(u"SELECT id, member, packet FROM sync WHERE meta_message = ? ORDER BY member ASC, global_time DESC LIMIT ? OFFSET ?", (meta.database_id,))
+                        for packet_id, member_id, packet in sync_packets:
+                            message = yield self.convert_packet_to_message(str(packet), community, verify=False)
                             assert message
 
                             if member_id == counter_member_id:
@@ -2061,13 +2155,14 @@ ORDER BY global_time""", (meta.database_id, member_database_id)))
 
                     else:
                         assert isinstance(meta.authentication, DoubleMemberAuthentication)
-                        for packet_id, member_id, packet in select(u"SELECT id, member, packet FROM sync WHERE meta_message = ? ORDER BY member ASC, global_time DESC LIMIT ? OFFSET ?", (meta.database_id,)):
-                            message = self.convert_packet_to_message(str(packet), community, verify=False)
+                        sync_packets = yield fetchall(u"SELECT id, member, packet FROM sync WHERE meta_message = ? ORDER BY member ASC, global_time DESC LIMIT ? OFFSET ?", (meta.database_id,))
+                        for packet_id, member_id, packet in sync_packets:
+                            message = yield self.convert_packet_to_message(str(packet), community, verify=False)
                             assert message
 
                             try:
-                                member1, member2 = self._database.execute(u"SELECT member1, member2 FROM double_signed_sync WHERE sync = ?", (packet_id,)).next()
-                            except StopIteration:
+                                member1, member2 = yield self._database.stormdb.fetchone(u"SELECT member1, member2 FROM double_signed_sync WHERE sync = ?", (packet_id,))
+                            except TypeError:
                                 raise ValueError("found double signed message without an entry in the double_signed_sync table")
 
                             if not member1 < member2:
@@ -2094,6 +2189,7 @@ ORDER BY global_time""", (meta.database_id, member_database_id)))
 
     # TODO(emilon): Shouldn't start() just raise an exception if something goes wrong?, that would clean up a lot of cruft
     @blocking_call_on_reactor_thread
+    @inlineCallbacks
     def start(self, autoload_discovery=True):
         """
         Starts Dispersy.
@@ -2114,7 +2210,8 @@ ORDER BY global_time""", (meta.database_id, member_database_id)))
 
         assert all(isinstance(result, bool) for _, result in results), [type(result) for _, result in results]
 
-        results.append((u"database", self._database.open()))
+        result_open_db = yield self._database.open()
+        results.append((u"database", result_open_db))
         assert all(isinstance(result, bool) for _, result in results), [type(result) for _, result in results]
 
         results.append((u"endpoint", self._endpoint.open(self)))
@@ -2138,13 +2235,15 @@ ORDER BY global_time""", (meta.database_id, member_database_id)))
                 self._logger.info("Dispersy core loading DiscoveryCommunity")
 
                 # TODO: pass None instead of new member, let community decide if we need a new member or not.
-                self._discovery_community = self.define_auto_load(DiscoveryCommunity, self.get_new_member(), load=True)[0]
-            return True
+                new_dispersy_member = yield self.get_new_member()
+                auto_load_result = yield self.define_auto_load(DiscoveryCommunity, new_dispersy_member, load=True)
+                self._discovery_community = auto_load_result[0]
+            returnValue(True)
 
         else:
             self._logger.error("Dispersy core unable to start all components [%s]",
                          ", ".join("{0}:{1}".format(key, value) for key, value in results))
-            return False
+            returnValue(False)
 
     @blocking_call_on_reactor_thread
     def stop(self, timeout=10.0):
@@ -2184,16 +2283,15 @@ ORDER BY global_time""", (meta.database_id, member_database_id)))
                 else:
                     self._logger.warning("Attempting to unload %s which is not loaded", community)
 
+        results = {}
+
         self._logger.info('Stopping Dispersy Core..')
         if os.environ.get("DISPERSY_PRINT_STATISTICS", "False").lower() == "true":
             # output statistics before we stop
             if self._logger.isEnabledFor(logging.DEBUG):
-                self._statistics.update()
+                results[u"statistics"] = self._statistics.update()
                 self._logger.debug("\n%s", pformat(self._statistics.get_dict(), width=120))
         _runtime_statistics.clear()
-
-        self._logger.info("stopping the Dispersy core...")
-        results = {}
 
         # unload communities that are not defined
         unload_communities([community
