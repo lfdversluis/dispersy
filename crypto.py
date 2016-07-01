@@ -115,7 +115,7 @@ class ECCrypto(DispersyCrypto):
         """
         return _CURVES.keys()
 
-    @attach_runtime_statistics(u"{0.__class__.__name__}.{function_name}")
+    #@attach_runtime_statistics(u"{0.__class__.__name__}.{function_name}")
     def generate_key(self, security_level):
         """
         Generate a new Elliptic Curve object with a new public / private key pair.
@@ -153,7 +153,7 @@ class ECCrypto(DispersyCrypto):
         assert isinstance(ec, DispersyKey), ec
         return ec.key_to_hash()
 
-    @attach_runtime_statistics(u"{0.__class__.__name__}.{function_name}")
+    #@attach_runtime_statistics(u"{0.__class__.__name__}.{function_name}")
     def is_valid_private_bin(self, string):
         "Returns True if the input is a valid public/private keypair stored in a binary format"
         try:
@@ -162,7 +162,7 @@ class ECCrypto(DispersyCrypto):
             return False
         return True
 
-    @attach_runtime_statistics(u"{0.__class__.__name__}.{function_name}")
+    #@attach_runtime_statistics(u"{0.__class__.__name__}.{function_name}")
     def is_valid_public_bin(self, string):
         "Returns True if the input is a valid public key"
         try:
@@ -262,7 +262,7 @@ class M2CryptoPK(DispersyKey):
     def has_secret_key(self):
         return False
 
-    @attach_runtime_statistics(u"{0.__class__.__name__}.{function_name}")
+    #@attach_runtime_statistics(u"{0.__class__.__name__}.{function_name}")
     def pem_to_bin(self, pem):
         """
         Convert a key in the PEM format into a key in the binary format.
@@ -270,26 +270,26 @@ class M2CryptoPK(DispersyKey):
         """
         return "".join(pem.split("\n")[1:-2]).decode("BASE64")
 
-    @attach_runtime_statistics(u"{0.__class__.__name__}.{function_name}")
+    #@attach_runtime_statistics(u"{0.__class__.__name__}.{function_name}")
     def key_to_pem(self):
         "Convert a key to the PEM format."
         bio = BIO.MemoryBuffer()
         self.ec.save_pub_key_bio(bio)
         return bio.read_all()
 
-    @attach_runtime_statistics(u"{0.__class__.__name__}.{function_name}")
+    #@attach_runtime_statistics(u"{0.__class__.__name__}.{function_name}")
     def key_from_pem(self, pem):
         "Get the EC from a public PEM."
         return EC.load_pub_key_bio(BIO.MemoryBuffer(pem))
 
-    @attach_runtime_statistics(u"{0.__class__.__name__}.{function_name}")
+    #@attach_runtime_statistics(u"{0.__class__.__name__}.{function_name}")
     def key_to_bin(self):
         return self.pem_to_bin(self.key_to_pem())
 
     def get_signature_length(self):
         return int(ceil(len(self.ec) / 8.0)) * 2
 
-    @attach_runtime_statistics(u"{0.__class__.__name__}.{function_name}")
+    #@attach_runtime_statistics(u"{0.__class__.__name__}.{function_name}")
     def verify(self, signature, data):
         length = len(signature) / 2
         r = signature[:length]
@@ -345,21 +345,21 @@ class M2CryptoSK(M2CryptoPK):
     def has_secret_key(self):
         return True
 
-    @attach_runtime_statistics(u"{0.__class__.__name__}.{function_name}")
+    #@attach_runtime_statistics(u"{0.__class__.__name__}.{function_name}")
     def key_to_pem(self):
         "Convert a key to the PEM format."
         bio = BIO.MemoryBuffer()
         self.ec.save_key_bio(bio, None, lambda *args: "")
         return bio.read_all()
 
-    @attach_runtime_statistics(u"{0.__class__.__name__}.{function_name}")
+    #@attach_runtime_statistics(u"{0.__class__.__name__}.{function_name}")
     def key_from_pem(self, pem):
         "Get the EC from a public/private keypair stored in the PEM."
         def get_password(*args):
             return ""
         return EC.load_key_bio(BIO.MemoryBuffer(pem), get_password)
 
-    @attach_runtime_statistics(u"{0.__class__.__name__}.{function_name}")
+    #@attach_runtime_statistics(u"{0.__class__.__name__}.{function_name}")
     def signature(self, msg):
         length = int(ceil(len(self.ec) / 8.0))
         digest = sha1(msg).digest()
@@ -389,7 +389,7 @@ class LibNaCLPK(DispersyKey):
     def has_secret_key(self):
         return False
 
-    @attach_runtime_statistics(u"{0.__class__.__name__}.{function_name}")
+    #@attach_runtime_statistics(u"{0.__class__.__name__}.{function_name}")
     def verify(self, signature, msg):
         return self.veri.verify(signature + msg)
 
@@ -416,7 +416,7 @@ class LibNaCLSK(LibNaCLPK):
     def has_secret_key(self):
         return True
 
-    @attach_runtime_statistics(u"{0.__class__.__name__}.{function_name}")
+    #@attach_runtime_statistics(u"{0.__class__.__name__}.{function_name}")
     def signature(self, msg):
         return self.key.signature(msg)
 
