@@ -3,6 +3,7 @@ from math import ceil
 from socket import inet_ntoa, inet_aton
 from struct import pack, unpack_from, Struct
 import logging
+from twisted.internet.defer import inlineCallbacks, returnValue
 
 from .authentication import Authentication, NoAuthentication, MemberAuthentication, DoubleMemberAuthentication
 from .bloomfilter import BloomFilter
@@ -275,13 +276,14 @@ class NoDefBinaryConversion(Conversion):
         message_id = self._encode_message_map[payload.message.name].byte
         return (payload.member.mid, message_id, self._struct_LL.pack(payload.missing_low, payload.missing_high))
 
+    @inlineCallbacks
     def _decode_missing_sequence(self, placeholder, offset, data):
         if len(data) < offset + 29:
             raise DropPacket("Insufficient packet size")
 
         member_id = data[offset:offset + 20]
         offset += 20
-        member = self._community.get_member(mid=member_id)
+        member = yield self._community.get_member(mid=member_id)
         if member is None:
             raise DropPacket("Unknown member")
 
@@ -295,7 +297,7 @@ class NoDefBinaryConversion(Conversion):
             raise DropPacket("Invalid missing_low and missing_high combination")
         offset += 8
 
-        return offset, placeholder.meta.payload.Implementation(placeholder.meta.payload, member, decode_functions.meta, missing_low, missing_high)
+        returnValue((offset, placeholder.meta.payload.Implementation(placeholder.meta.payload, member, decode_functions.meta, missing_low, missing_high)))
 
     def _encode_missing_message(self, message):
         """
@@ -315,6 +317,7 @@ class NoDefBinaryConversion(Conversion):
         payload = message.payload
         return (self._struct_H.pack(len(payload.member.public_key)), payload.member.public_key, pack("!%dQ" % len(payload.global_times), *payload.global_times))
 
+    @inlineCallbacks
     def _decode_missing_message(self, placeholder, offset, data):
         if len(data) < offset + 2:
             raise DropPacket("Insufficient packet size (_decode_missing_message.1)")
@@ -327,8 +330,8 @@ class NoDefBinaryConversion(Conversion):
 
         key = data[offset:offset + key_length]
         try:
-            member = self._community.dispersy.get_member(public_key=key)
-        except:
+            member = yield self._community.dispersy.get_member(public_key=key)
+        except Exception:
             raise DropPacket("Invalid cryptographic key (_decode_missing_message)")
         offset += key_length
 
@@ -342,11 +345,12 @@ class NoDefBinaryConversion(Conversion):
         global_times = unpack_from("!%dQ" % global_time_length, data, offset)
         offset += 8 * len(global_times)
 
-        return offset, placeholder.meta.payload.Implementation(placeholder.meta.payload, member, global_times)
+        returnValue((offset, placeholder.meta.payload.Implementation(placeholder.meta.payload, member, global_times)))
 
     def _encode_signature_request(self, message):
         return (self._struct_H.pack(message.payload.identifier), message.payload.message.packet)
 
+    @inlineCallbacks
     def _decode_signature_request(self, placeholder, offset, data):
         if len(data) < offset + 2:
             raise DropPacket("Insufficient packet size (_decode_signature_request)")
@@ -354,15 +358,18 @@ class NoDefBinaryConversion(Conversion):
         identifier, = self._struct_H.unpack_from(data, offset)
         offset += 2
 
-        message = self.decode_message(placeholder.candidate, data[offset:], True, True)
+        message = yield self.decode_message(placeholder.candidate, data[offset:], True, True)
         offset = len(data)
 
-        return offset, placeholder.meta.payload.Implementation(placeholder.meta.payload, identifier, message)
+        returnValue((offset, placeholder.meta.payload.Implementation(placeholder.meta.payload, identifier, message)))
 
+    @inlineCallbacks
     def _encode_signature_response(self, message):
-        return (self._struct_H.pack(message.payload.identifier), self.encode_message(message.payload.message))
+        encoded_message = yield self.encode_message(message.payload.message)
+        returnValue((self._struct_H.pack(message.payload.identifier), encoded_message))
         # return message.payload.identifier, message.payload.signature
 
+    @inlineCallbacks
     def _decode_signature_response(self, placeholder, offset, data):
         if len(data) < offset + 2:
             raise DropPacket("Insufficient packet size (_decode_signature_request)")
@@ -370,10 +377,10 @@ class NoDefBinaryConversion(Conversion):
         identifier, = self._struct_H.unpack_from(data, offset)
         offset += 2
 
-        message = self.decode_message(placeholder.candidate, data[offset:], True, True)
+        message = yield self.decode_message(placeholder.candidate, data[offset:], True, True)
         offset = len(data)
 
-        return offset, placeholder.meta.payload.Implementation(placeholder.meta.payload, identifier, message)
+        returnValue((offset, placeholder.meta.payload.Implementation(placeholder.meta.payload, identifier, message)))
 
     def _encode_identity(self, message):
         return ()
@@ -451,6 +458,7 @@ class NoDefBinaryConversion(Conversion):
 
         return tuple(data)
 
+    @inlineCallbacks
     def _decode_authorize(self, placeholder, offset, data):
         permission_map = {u"permit": int("0001", 2), u"authorize": int("0010", 2), u"revoke": int("0100", 2), u"undo": int("1000", 2)}
         permission_triplets = []
@@ -467,8 +475,8 @@ class NoDefBinaryConversion(Conversion):
 
             key = data[offset:offset + key_length]
             try:
-                member = self._community.dispersy.get_member(public_key=key)
-            except:
+                member = yield self._community.dispersy.get_member(public_key=key)
+            except Exception:
                 raise DropPacket("Invalid cryptographic key (_decode_authorize)")
             offset += key_length
 
@@ -502,7 +510,7 @@ class NoDefBinaryConversion(Conversion):
 
                         permission_triplets.append((member, message, permission))
 
-        return offset, placeholder.meta.payload.Implementation(placeholder.meta.payload, permission_triplets)
+        returnValue((offset, placeholder.meta.payload.Implementation(placeholder.meta.payload, permission_triplets)))
 
     def _encode_revoke(self, message):
         """
@@ -547,6 +555,7 @@ class NoDefBinaryConversion(Conversion):
 
         return tuple(data)
 
+    @inlineCallbacks
     def _decode_revoke(self, placeholder, offset, data):
         permission_map = {u"permit": int("0001", 2), u"authorize": int("0010", 2), u"revoke": int("0100", 2), u"undo": int("1000", 2)}
         permission_triplets = []
@@ -563,8 +572,8 @@ class NoDefBinaryConversion(Conversion):
 
             key = data[offset:offset + key_length]
             try:
-                member = self._community.dispersy.get_member(public_key=key)
-            except:
+                member = yield self._community.dispersy.get_member(public_key=key)
+            except Exception:
                 raise DropPacket("Invalid cryptographic key (_decode_revoke)")
             offset += key_length
 
@@ -595,7 +604,7 @@ class NoDefBinaryConversion(Conversion):
                     if permission_bit & permission_bits:
                         permission_triplets.append((member, message, permission))
 
-        return offset, placeholder.meta.payload.Implementation(placeholder.meta.payload, permission_triplets)
+        returnValue((offset, placeholder.meta.payload.Implementation(placeholder.meta.payload, permission_triplets)))
 
     def _encode_undo_own(self, message):
         return (self._struct_Q.pack(message.payload.global_time),)
@@ -620,6 +629,7 @@ class NoDefBinaryConversion(Conversion):
         assert message.payload.member.public_key
         return (self._struct_H.pack(len(public_key)), public_key, self._struct_Q.pack(message.payload.global_time))
 
+    @inlineCallbacks
     def _decode_undo_other(self, placeholder, offset, data):
         if len(data) < offset + 2:
             raise DropPacket("Insufficient packet size")
@@ -632,8 +642,8 @@ class NoDefBinaryConversion(Conversion):
 
         public_key = data[offset:offset + key_length]
         try:
-            member = self._community.dispersy.get_member(public_key=public_key)
-        except:
+            member = yield self._community.dispersy.get_member(public_key=public_key)
+        except Exception:
             raise DropPacket("Invalid cryptographic key (_decode_revoke)")
         offset += key_length
 
@@ -646,12 +656,13 @@ class NoDefBinaryConversion(Conversion):
         if not global_time < placeholder.distribution.global_time:
             raise DropPacket("Invalid global time (trying to apply undo to the future)")
 
-        return offset, placeholder.meta.payload.Implementation(placeholder.meta.payload, member, global_time)
+        returnValue((offset, placeholder.meta.payload.Implementation(placeholder.meta.payload, member, global_time)))
 
     def _encode_missing_proof(self, message):
         payload = message.payload
         return (self._struct_QH.pack(payload.global_time, len(payload.member.public_key)), payload.member.public_key)
 
+    @inlineCallbacks
     def _decode_missing_proof(self, placeholder, offset, data):
         if len(data) < offset + 10:
             raise DropPacket("Insufficient packet size (_decode_missing_proof)")
@@ -661,12 +672,12 @@ class NoDefBinaryConversion(Conversion):
 
         key = data[offset:offset + key_length]
         try:
-            member = self._community.dispersy.get_member(public_key=key)
-        except:
+            member = yield self._community.dispersy.get_member(public_key=key)
+        except Exception:
             raise DropPacket("Invalid cryptographic key (_decode_missing_proof)")
         offset += key_length
 
-        return offset, placeholder.meta.payload.Implementation(placeholder.meta.payload, member, global_time)
+        returnValue((offset, placeholder.meta.payload.Implementation(placeholder.meta.payload, member, global_time)))
 
     def _encode_dynamic_settings(self, message):
         data = []
@@ -973,6 +984,7 @@ class NoDefBinaryConversion(Conversion):
         return message.name in self._encode_message_map
 
     @attach_runtime_statistics(u"{0.__class__.__name__}.{function_name} {1.name}")
+    @inlineCallbacks
     def encode_message(self, message, sign=True):
         assert isinstance(message, Message.Implementation), message
         assert message.name in self._encode_message_map, message.name
@@ -982,23 +994,24 @@ class NoDefBinaryConversion(Conversion):
         container = [self._prefix, encode_functions.byte]
 
         # authentication
-        encode_functions.authentication(container, message)
+        yield encode_functions.authentication(container, message)
 
         # resolution
-        encode_functions.resolution(container, message)
+        yield encode_functions.resolution(container, message)
 
         # distribution
-        encode_functions.distribution(container, message)
+        yield encode_functions.distribution(container, message)
 
         # payload
-        payload = encode_functions.payload(message)
+        payload = yield encode_functions.payload(message)
         assert isinstance(payload, (tuple, list)), (type(payload), encode_functions.payload)
         assert all(isinstance(x, str) for x in payload)
         container.extend(payload)
 
         # sign
         packet = "".join(container)
-        return packet + message.authentication.sign(packet)
+        res = packet + message.authentication.sign(packet)
+        returnValue(res)
 
     #
     # Decoding
@@ -1061,6 +1074,7 @@ class NoDefBinaryConversion(Conversion):
         placeholder.first_signature_offset = len(placeholder.data)
         placeholder.authentication = NoAuthentication.Implementation(placeholder.meta.authentication)
 
+    @inlineCallbacks
     def _decode_member_authentication(self, placeholder):
         authentication = placeholder.meta.authentication
         offset = placeholder.offset
@@ -1073,7 +1087,7 @@ class NoDefBinaryConversion(Conversion):
             member_id = data[offset:offset + 20]
             offset += 20
 
-            member = self._community.get_member(mid=member_id)
+            member = yield self._community.get_member(mid=member_id)
             # If signatures and verification are enabled, verify that the signature matches the member sha1 identifier
             if member:
                 placeholder.offset = offset
@@ -1093,7 +1107,7 @@ class NoDefBinaryConversion(Conversion):
             offset += key_length
 
             try:
-                member = self._community.get_member(public_key=key)
+                member = yield self._community.get_member(public_key=key)
             except:
                 raise DropPacket("Invalid cryptographic key (_decode_member_authentication)")
 
@@ -1106,6 +1120,7 @@ class NoDefBinaryConversion(Conversion):
         else:
             raise NotImplementedError(encoding)
 
+    @inlineCallbacks
     def _decode_double_member_authentication(self, placeholder):
         authentication = placeholder.meta.authentication
         offset = placeholder.offset
@@ -1116,7 +1131,7 @@ class NoDefBinaryConversion(Conversion):
         if encoding == "sha1":
             for _ in range(2):
                 member_id = data[offset:offset + 20]
-                member = self._community.get_member(mid=member_id)
+                member = yield self._community.get_member(mid=member_id)
                 if not member:
                     raise DelayPacketByMissingMember(self._community, member_id)
                 offset += 20
@@ -1132,9 +1147,9 @@ class NoDefBinaryConversion(Conversion):
                 key = data[offset:offset + key_length]
                 offset += key_length
                 try:
-                    member = self._community.dispersy.get_member(public_key=key)
+                    member = yield self._community.dispersy.get_member(public_key=key)
                     members.append(member)
-                except:
+                except Exception:
                     raise DropPacket("Invalid cryptographic key1 (_decode_double_member_authentication)")
 
         else:
@@ -1174,6 +1189,7 @@ class NoDefBinaryConversion(Conversion):
         return self._decode_message_map[data[22]].meta
 
     @attach_runtime_statistics(u"{0.__class__.__name__}.{function_name} {return_value}")
+    @inlineCallbacks
     def decode_message(self, candidate, data, verify=True, allow_empty_signature=False, source="unknown"):
         """
         Decode a binary string into a Message structure, with some
@@ -1193,30 +1209,32 @@ class NoDefBinaryConversion(Conversion):
         if not self.can_decode_message(data):
             raise DropPacket("Cannot decode message")
 
+        # The function pointer obtained here may point to a function that returns a deferred.
         decode_functions = self._decode_message_map[data[22]]
 
         # placeholder
         placeholder = self.Placeholder(candidate, decode_functions.meta, 23, data, verify, allow_empty_signature)
 
         # authentication
-        decode_functions.authentication(placeholder)
+        yield decode_functions.authentication(placeholder)
+
         assert isinstance(placeholder.authentication, Authentication.Implementation), placeholder.authentication
 
         # resolution
-        decode_functions.resolution(placeholder)
+        yield decode_functions.resolution(placeholder)
         assert isinstance(placeholder.resolution, Resolution.Implementation)
 
         # destination
-        decode_functions.destination(placeholder)
+        yield decode_functions.destination(placeholder)
         assert isinstance(placeholder.destination, Destination.Implementation)
 
         # distribution
-        decode_functions.distribution(placeholder)
+        yield decode_functions.distribution(placeholder)
         assert isinstance(placeholder.distribution, Distribution.Implementation)
 
         # payload
         payload = placeholder.data[:placeholder.first_signature_offset]
-        placeholder.offset, placeholder.payload = decode_functions.payload(placeholder, placeholder.offset, payload)
+        placeholder.offset, placeholder.payload = yield decode_functions.payload(placeholder, placeholder.offset, payload)
         if placeholder.offset != placeholder.first_signature_offset:
             self._logger.warning("invalid packet size for %s data:%d; offset:%d",
                                  placeholder.meta.name, placeholder.first_signature_offset, placeholder.offset)
@@ -1226,10 +1244,13 @@ class NoDefBinaryConversion(Conversion):
         assert isinstance(placeholder.offset, (int, long))
 
         # verify payload
-        if placeholder.verify and not placeholder.authentication.has_valid_signature_for(placeholder, payload):
+        has_valid_signature = yield placeholder.authentication.has_valid_signature_for(placeholder, payload)
+        if placeholder.verify and not has_valid_signature:
             raise DropPacket("Invalid signature")
 
-        return placeholder.meta.Implementation(placeholder.meta, placeholder.authentication, placeholder.resolution, placeholder.distribution, placeholder.destination, placeholder.payload, conversion=self, candidate=candidate, source=source, packet=placeholder.data)
+
+        placeholder_impl = placeholder.meta.Implementation(placeholder.meta, placeholder.authentication, placeholder.resolution, placeholder.distribution, placeholder.destination, placeholder.payload, conversion=self, candidate=candidate, source=source, packet=placeholder.data)
+        returnValue(placeholder_impl)
 
     def __str__(self):
         return "<%s %s%s [%s]>" % (self.__class__.__name__, self.dispersy_version.encode("HEX"), self.community_version.encode("HEX"), ", ".join(self._encode_message_map.iterkeys()))
@@ -1258,7 +1279,7 @@ class BinaryConversion(NoDefBinaryConversion):
 
         # 255 is reserved
         define(254, u"dispersy-missing-sequence", self._encode_missing_sequence, self._decode_missing_sequence)
-        define(253, u"dispersy-missing-proof", self._encode_missing_proof, self._decode_missing_proof)
+        define(253, u"dispersy-missing-proof", self._encode_missing_proof, self._decode_missing_proof) # self_decode_missing_proof returns a deferred.
         define(252, u"dispersy-signature-request", self._encode_signature_request, self._decode_signature_request)
         define(251, u"dispersy-signature-response", self._encode_signature_response, self._decode_signature_response)
         define(250, u"dispersy-puncture-request", self._encode_puncture_request, self._decode_puncture_request)
