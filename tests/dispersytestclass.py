@@ -1,18 +1,17 @@
-import os
 import logging
-from unittest import TestCase
+import os
 from tempfile import mkdtemp
+from unittest import TestCase
 
 from twisted.internet import reactor
 from twisted.internet.defer import inlineCallbacks, returnValue
 
-from ..discovery.community import PEERCACHE_FILENAME
-from ..dispersy import Dispersy
-from ..endpoint import ManualEnpoint
-from ..util import blockingCallFromThread
 from .debugcommunity.community import DebugCommunity
 from .debugcommunity.node import DebugNode
-
+from ..discovery.community import PEERCACHE_FILENAME
+from ..dispersy import Dispersy
+from ..endpoint import ManualEnpoint, TUNNEL_PREFIX
+from ..util import blockingCallFromThread
 
 # use logger.conf if it exists
 if os.path.exists("logger.conf"):
@@ -63,6 +62,27 @@ class DispersyTestFunc(TestCase):
             self._logger.warning("Failing")
         assert not pending, "The reactor was not clean after shutting down all dispersy instances."
 
+    @inlineCallbacks
+    def send_packet(self, candidate, packet, prefix=None):
+        packet = (prefix or '') + packet
+
+        if len(packet) > 2 ** 16 - 60:
+            raise RuntimeError("UDP does not support %d byte packets" % len(packet))
+
+        data = TUNNEL_PREFIX + packet if candidate.tunnel else packet
+
+        for a_node in self.nodes:
+            complete_packets = []
+            if candidate == a_node.my_candidate:
+                complete_packets.append((candidate.sock_addr, data))
+            if complete_packets:
+                yield a_node._dispersy.endpoint.data_came_in(complete_packets)
+        returnValue(True)
+
+    def patch_send_packet_for_nodes(self):
+        for node in self.nodes:
+            node._dispersy.endpoint.send_packet = self.send_packet
+
     def create_nodes(self, amount=1, store_identity=True, tunnel=False, community_class=DebugCommunity,
                      autoload_discovery=False, memory_database=True):
         """
@@ -87,11 +107,12 @@ class DispersyTestFunc(TestCase):
                 working_directory = unicode(mkdtemp(suffix="_dispersy_test_session"))
 
                 dispersy = Dispersy(ManualEnpoint(0), working_directory, **memory_database_argument)
-                dispersy.start(autoload_discovery=autoload_discovery)
+                yield dispersy.initialize_statistics()
+                yield dispersy.start(autoload_discovery=autoload_discovery)
 
                 self.dispersy_objects.append(dispersy)
 
-                node = self._create_node(dispersy, communityclass, self._mm)
+                node = yield self._create_node(dispersy, communityclass, self._mm)
                 yield node.init_my_member(tunnel=tunnel, store_identity=store_identity)
 
                 nodes.append(node)
@@ -101,5 +122,8 @@ class DispersyTestFunc(TestCase):
         return blockingCallFromThread(reactor, _create_nodes, amount, store_identity, tunnel, community_class,
                                       autoload_discovery, memory_database)
 
+    @inlineCallbacks
     def _create_node(self, dispersy, community_class, c_master_member):
-        return DebugNode(self, dispersy, community_class, c_master_member)
+        node = DebugNode(self, dispersy)
+        yield node.initialize(community_class, c_master_member)
+        returnValue(node)
