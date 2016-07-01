@@ -34,6 +34,7 @@ from dispersy.tracker.community import TrackerCommunity, TrackerHardKilledCommun
 from twisted.application.service import IServiceMaker, MultiService
 from twisted.conch import manhole_tap
 from twisted.internet import reactor
+from twisted.internet.defer import returnValue, inlineCallbacks
 from twisted.internet.task import LoopingCall
 from twisted.logger import globalLogPublisher
 from twisted.plugin import IPlugin
@@ -69,9 +70,11 @@ class TrackerDispersy(Dispersy):
         self._silent = silent
         self._my_member = None
 
+    @inlineCallbacks
     def start(self):
         assert isInIOThread()
-        if super(TrackerDispersy, self).start():
+        tracker_started = yield super(TrackerDispersy, self).start()
+        if tracker_started:
             self._create_my_member()
             self._load_persistent_storage()
 
@@ -85,8 +88,8 @@ class TrackerDispersy(Dispersy):
                 self._statistics_looping_call = LoopingCall(self._report_statistics)
                 self._statistics_looping_call.start(300)
 
-            return True
-        return False
+            returnValue(True)
+        returnValue(False)
 
     def _create_my_member(self):
         # generate a new my-member
@@ -97,11 +100,14 @@ class TrackerDispersy(Dispersy):
     def persistent_storage_filename(self):
         return self._persistent_storage_filename
 
+    @inlineCallbacks
     def get_community(self, cid, load=False, auto_load=True):
         try:
-            return super(TrackerDispersy, self).get_community(cid, True, True)
+            community = yield super(TrackerDispersy, self).get_community(cid, True, True)
+            returnValue(community)
         except CommunityNotFoundException:
-            return TrackerCommunity.init_community(self, self.get_member(mid=cid), self._my_member)
+            community = TrackerCommunity.init_community(self, self.get_member(mid=cid), self._my_member)
+            returnValue(community)
 
     def _load_persistent_storage(self):
         # load all destroyed communities
@@ -214,6 +220,7 @@ class TrackerServiceMaker(object):
             tracker_service.addService(manhole)
             manhole.startService()
 
+        @inlineCallbacks
         def run():
             # setup
             dispersy = TrackerDispersy(StandaloneEndpoint(options["port"],
@@ -238,7 +245,8 @@ class TrackerServiceMaker(object):
             signal.signal(signal.SIGTERM, signal_handler)
 
             # start
-            if not dispersy.start():
+            start_result = yield dispersy.start()
+            if not start_result:
                 raise RuntimeError("Unable to start Dispersy")
 
         # wait forever
