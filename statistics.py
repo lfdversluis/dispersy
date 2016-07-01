@@ -3,6 +3,8 @@ from collections import defaultdict
 from threading import RLock
 from time import time
 
+from twisted.internet.defer import inlineCallbacks
+
 
 class Statistics(object):
 
@@ -195,11 +197,13 @@ class DispersyStatistics(Statistics):
         self.msg_statistics = MessageStatistics()
         self.enable_debug_statistics(__debug__)
 
-        self.update()
+    @inlineCallbacks
+    def initialize(self):
+        yield self.update()
 
     @property
     def database_version(self):
-        return self._dispersy.database.database_version
+        return self._dispersy.database.stormdb.version
 
     @property
     def lan_address(self):
@@ -236,12 +240,13 @@ class DispersyStatistics(Statistics):
     def are_debug_statistics_enabled(self):
         return self._enabled
 
+    @inlineCallbacks
     def update(self, database=False):
         self.timestamp = time()
 
         self.communities = [community.statistics for community in self._dispersy.get_communities()]
         for community in self.communities:
-            community.update(database=database)
+            yield community.update(database=database)
 
         # list with {count=int, duration=float, average=float, entry=str} dictionaries.  each entry
         # represents a key from the attach_runtime_statistics decorator
@@ -348,9 +353,11 @@ class CommunityStatistics(Statistics):
     def enable_debug_statistics(self, enabled):
         self.msg_statistics.enable(enabled)
 
+    @inlineCallbacks
     def update(self, database=False):
         if database:
-            self.database = dict(self._community.dispersy.database.execute(u"SELECT meta_message.name, COUNT(sync.id) FROM sync JOIN meta_message ON meta_message.id = sync.meta_message WHERE sync.community = ? GROUP BY sync.meta_message", (self._community.database_id,)))
+            sync_data = yield self._community.dispersy.database.stormdb.fetchall(u"SELECT meta_message.name, COUNT(sync.id) FROM sync JOIN meta_message ON meta_message.id = sync.meta_message WHERE sync.community = ? GROUP BY sync.meta_message", (self._community.database_id,))
+            self.database = dict(sync_data)
         else:
             self.database = dict()
 
