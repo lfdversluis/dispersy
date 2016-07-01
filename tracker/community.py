@@ -1,3 +1,5 @@
+from twisted.internet.defer import returnValue, inlineCallbacks
+
 from ..community import Community, HardKilledCommunity
 from ..conversion import BinaryConversion
 from ..exception import ConversionNotFoundException
@@ -113,6 +115,7 @@ class TrackerCommunity(Community):
     def take_step(self):
         raise RuntimeError("a tracker should not walk")
 
+    @inlineCallbacks
     def dispersy_cleanup_community(self, message):
         # since the trackers use in-memory databases, we need to store the destroy-community
         # message, and all associated proof, separately.
@@ -124,7 +127,7 @@ class TrackerCommunity(Community):
         write("# received dispersy-destroy-community from %s\n" % (str(message.candidate),))
 
         identity_id = self._meta_messages[u"dispersy-identity"].database_id
-        execute = self._dispersy.database.execute
+        fetchone = self._dispersy.database.stormdb.fetchone
         messages = [message]
         stored = set()
         while messages:
@@ -136,9 +139,9 @@ class TrackerCommunity(Community):
 
                 if not message.authentication.member.public_key in stored:
                     try:
-                        packet, = execute(u"SELECT packet FROM sync WHERE meta_message = ? AND member = ?", (
-                            identity_id, message.authentication.member.database_id)).next()
-                    except StopIteration:
+                        packet, = yield fetchone(u"SELECT packet FROM sync WHERE meta_message = ? AND member = ?", (
+                            identity_id, message.authentication.member.database_id))
+                    except TypeError:
                         pass
                     else:
                         write(" ".join(("dispersy-identity", str(packet).encode("HEX"), "\n")))
@@ -146,8 +149,9 @@ class TrackerCommunity(Community):
                 _, proofs = self._timeline.check(message)
                 messages.extend(proofs)
 
-        return TrackerHardKilledCommunity
+        returnValue(TrackerHardKilledCommunity)
 
+    @inlineCallbacks
     def on_introduction_request(self, messages):
         if not self._dispersy._silent:
             hex_cid = self.cid.encode("HEX")
@@ -158,7 +162,8 @@ class TrackerCommunity(Community):
                 ord(message.conversion.dispersy_version),
                 ord(message.conversion.community_version), host, port
 
-        return super(TrackerCommunity, self).on_introduction_request(messages)
+        res = yield super(TrackerCommunity, self).on_introduction_request(messages)
+        returnValue(res)
 
     def on_introduction_response(self, messages):
         if not self._dispersy._silent:
