@@ -1,3 +1,5 @@
+from twisted.internet.defer import inlineCallbacks, returnValue
+
 from ...authentication import DoubleMemberAuthentication, MemberAuthentication
 from ...candidate import Candidate
 from ...community import Community, HardKilledCommunity
@@ -193,6 +195,7 @@ class DebugCommunity(Community):
     #
     # double-signed-text
     #
+    @inlineCallbacks
     def allow_double_signed_text(self, message):
         """
         Received a request to sign MESSAGE.
@@ -203,19 +206,21 @@ class DebugCommunity(Community):
         allow_text = message.payload.text
         assert allow_text.startswith("Allow=True") or allow_text.startswith("Allow=False") or allow_text.startswith("Allow=Modify") or allow_text.startswith("Allow=Append")
         if allow_text.startswith("Allow=True"):
-            return message
+            returnValue(message)
 
         if allow_text.startswith("Allow=Modify"):
             meta = message.meta
-            return meta.impl(authentication=(message.authentication.members,),
+            res = yield meta.impl(authentication=(message.authentication.members,),
                          distribution=(message.distribution.global_time,),
                          payload=("MODIFIED",))
+            returnValue(res)
 
         if allow_text.startswith("Allow=Append"):
             meta = message.meta
-            return meta.impl(authentication=(message.authentication.members, message.authentication._signatures),
+            res = yield meta.impl(authentication=(message.authentication.members, message.authentication._signatures),
                          distribution=(message.distribution.global_time,),
                          payload=(allow_text + "MODIFIED",))
+            returnValue(res)
 
     def split_double_payload(self, payload):
         # alice signs until the ","
@@ -232,12 +237,13 @@ class DebugCommunity(Community):
             if not "Dprint=False" in message.payload.text:
                 self._logger.debug("%s \"%s\" @%d", message, message.payload.text, message.distribution.global_time)
 
+    @inlineCallbacks
     def undo_text(self, descriptors):
         """
         Received an undo for a text message.
         """
         for member, global_time, packet in descriptors:
-            message = packet.load_message()
+            message = yield packet.load_message()
             self._logger.debug("undo \"%s\" @%d", message.payload.text, global_time)
 
     def dispersy_cleanup_community(self, message):
