@@ -1,8 +1,12 @@
+from time import sleep
+
+from nose.twistedtools import deferred, reactor
+from twisted.internet.defer import inlineCallbacks
+from twisted.internet.task import deferLater
+
 from .dispersytestclass import DispersyTestFunc
-from ..discovery.community import DiscoveryCommunity, BOOTSTRAP_FILE_ENVNAME
 from ..discovery.bootstrap import _DEFAULT_ADDRESSES
-import os
-import time
+from ..discovery.community import DiscoveryCommunity
 
 
 class TestDiscovery(DispersyTestFunc):
@@ -12,21 +16,25 @@ class TestDiscovery(DispersyTestFunc):
             _DEFAULT_ADDRESSES.pop()
         super(TestDiscovery, self).setUp()
 
+    @deferred(timeout=10)
+    @inlineCallbacks
     def test_overlap(self):
         def get_preferences():
             return ['0' * 20, '1' * 20]
         self._community.my_preferences = get_preferences
 
-        node,  = self.create_nodes(1)
+        node, = yield self.create_nodes(1)
         node._community.my_preferences = get_preferences
 
-        node.process_packets()
-        self._mm.process_packets()
-        time.sleep(1)
+        yield node.process_packets()
+        yield self._mm.process_packets()
+        yield deferLater(reactor, 1.0, lambda: None)
 
         assert node._community.is_taste_buddy_mid(self._mm.my_mid)
         assert self._mm._community.is_taste_buddy_mid(node.my_mid)
 
+    @deferred(timeout=10)
+    @inlineCallbacks
     def test_introduction(self):
         def get_preferences(node_index):
             return [str(i) * 20 for i in range(node_index, node_index + 2)]
@@ -39,27 +47,28 @@ class TestDiscovery(DispersyTestFunc):
 
         self._community.my_preferences = lambda: get_preferences(0)
 
-        node,  = self.create_nodes(1)
+        node, = yield self.create_nodes(1)
         node._community.my_preferences = lambda: get_preferences(1)
 
-        node.process_packets()
-        self._mm.process_packets()
-        time.sleep(1)
+        yield node.process_packets()
+        yield self._mm.process_packets()
+        yield deferLater(reactor, 1.0, lambda: None)
 
         assert node._community.is_taste_buddy_mid(self._mm.my_mid)
         assert self._mm._community.is_taste_buddy_mid(node.my_mid)
 
-        other,  = self.create_nodes(1)
+        other, = yield self.create_nodes(1)
         other._community.my_preferences = lambda: get_preferences(2)
         orig_method = other._community.get_most_similar
         other._community.get_most_similar = lambda candidate: get_most_similar(orig_method, candidate)
 
         other._community.add_discovered_candidate(self._mm.my_candidate)
-        other.take_step()
+        # This calls take_step in debug node. This is wrapped in @blockincallfromthread so it's synchronous.
+        yield other.take_step()
 
-        self._mm.process_packets()
-        other.process_packets()
-        time.sleep(1)
+        yield self._mm.process_packets()
+        yield other.process_packets()
+        yield deferLater(reactor, 1.0, lambda: None)
 
         # other and mm should not be taste buddies
         assert not other._community.is_taste_buddy_mid(self._mm.my_mid)
