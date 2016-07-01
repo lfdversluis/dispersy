@@ -6,11 +6,15 @@ This module provides basic database functionalty and simple version control.
 @contact: dispersy@frayja.com
 """
 import logging
+import os
 import sys
+import tempfile
 import thread
 from abc import ABCMeta, abstractmethod
-from sqlite3 import Connection
 
+from twisted.internet.defer import inlineCallbacks, returnValue
+
+from StormDBManager import StormDBManager
 from .util import attach_runtime_statistics
 
 
@@ -18,17 +22,21 @@ if "--explain-query-plan" in getattr(sys, "argv", []):
     _explain_query_plan_logger = logging.getLogger("explain-query-plan")
     _explain_query_plan = set()
 
+
     def attach_explain_query_plan(func):
+        @inlineCallbacks
         def attach_explain_query_plan_helper(self, statements, bindings=()):
             if not statements in _explain_query_plan:
                 _explain_query_plan.add(statements)
 
                 _explain_query_plan_logger.info("Explain query plan for <<<%s>>>", statements)
-                for line in self._cursor.execute(u"EXPLAIN QUERY PLAN %s" % statements, bindings):
+                query_plan = yield self.stormdb.fetchall(u"EXPLAIN QUERY PLAN %s" % statements, bindings)
+                for line in query_plan:
                     _explain_query_plan_logger.info(line)
                 _explain_query_plan_logger.info("--")
 
-            return func(self, statements, bindings)
+            return_value = yield func(self, statements, bindings)
+            returnValue(return_value)
         attach_explain_query_plan_helper.__name__ = func.__name__
         return attach_explain_query_plan_helper
 
@@ -76,6 +84,14 @@ class Database(object):
         self._connection = None
         self._cursor = None
         self._database_version = 0
+        # Storm does not know :memory: and it doesn't work when doing things multi-threaded. So generate a tmp database
+        # Note that this database is a file database.
+        if self._file_path == ":memory:":
+            temp_dir = tempfile.mkdtemp(prefix="dispersy_tmp_db_")
+            self.temp_db_path = os.path.join(temp_dir, u"test.db")
+            self.stormdb = StormDBManager("sqlite:%s" % self.temp_db_path)
+        else:
+            self.stormdb = StormDBManager("sqlite:%s" % self._file_path)
 
         # _commit_callbacks contains a list with functions that are called on each database commit
         self._commit_callbacks = []
@@ -87,18 +103,20 @@ class Database(object):
         if __debug__:
             self._debug_thread_ident = 0
 
+    @inlineCallbacks
     def open(self, initial_statements=True, prepare_visioning=True):
         assert self._cursor is None, "Database.open() has already been called"
         assert self._connection is None, "Database.open() has already been called"
         if __debug__:
             self._debug_thread_ident = thread.get_ident()
         self._logger.debug("open database [%s]", self._file_path)
+        yield self.stormdb.initialize()
         self._connect()
         if initial_statements:
-            self._initial_statements()
+            yield self._initial_statements()
         if prepare_visioning:
-            self._prepare_version()
-        return True
+            yield self._prepare_version()
+        returnValue(True)
 
     def close(self, commit=True):
         assert self._cursor is not None, "Database.close() has been called or Database.open() has not been called"
@@ -110,20 +128,27 @@ class Database(object):
         self._cursor = None
         self._connection.close()
         self._connection = None
+        # Clean up the temp database.
+        if self.temp_db_path and os.path.exists(self.temp_db_path):
+            os.remove(self.temp_db_path)
         return True
 
     def _connect(self):
-        self._connection = Connection(self._file_path)
+        self._connection = self.stormdb.connection._raw_connection
         self._cursor = self._connection.cursor()
 
+    @inlineCallbacks
     def _initial_statements(self):
         assert self._cursor is not None, "Database.close() has been called or Database.open() has not been called"
         assert self._connection is not None, "Database.close() has been called or Database.open() has not been called"
 
         # collect current database configuration
-        page_size = int(next(self._cursor.execute(u"PRAGMA page_size"))[0])
-        journal_mode = unicode(next(self._cursor.execute(u"PRAGMA journal_mode"))[0]).upper()
-        synchronous = unicode(next(self._cursor.execute(u"PRAGMA synchronous"))[0]).upper()
+        db_page_size = yield self.stormdb.fetchone(u"PRAGMA page_size")
+        page_size = int(db_page_size[0])
+        db_journal_mode = yield self.stormdb.fetchone(u"PRAGMA journal_mode")
+        journal_mode = unicode(db_journal_mode[0]).upper()
+        db_synchronous = yield self.stormdb.fetchone(u"PRAGMA synchronous")
+        synchronous = unicode(db_synchronous[0]).upper()
 
         #
         # PRAGMA page_size = bytes;
@@ -137,11 +162,10 @@ class Database(object):
 
             # it is not possible to change page_size when WAL is enabled
             if journal_mode == u"WAL":
-                self._cursor.executescript(u"PRAGMA journal_mode = DELETE")
+                yield self.stormdb.execute(u"PRAGMA journal_mode = DELETE")
                 journal_mode = u"DELETE"
-            self._cursor.execute(u"PRAGMA page_size = 8192")
-            self._cursor.execute(u"VACUUM")
-            page_size = 8192
+                yield self.stormdb.execute(u"PRAGMA page_size = 8192")
+                yield self.stormdb.execute(u"VACUUM")
 
         else:
             self._logger.debug("PRAGMA page_size = %s (no change) [%s]", page_size, self._file_path)
@@ -152,8 +176,8 @@ class Database(object):
         #
         if not (journal_mode == u"WAL" or self._file_path == u":memory:"):
             self._logger.debug("PRAGMA journal_mode = WAL (previously: %s) [%s]", journal_mode, self._file_path)
-            self._cursor.execute(u"PRAGMA locking_mode = EXCLUSIVE")
-            self._cursor.execute(u"PRAGMA journal_mode = WAL")
+            yield self.stormdb.execute(u"PRAGMA locking_mode = EXCLUSIVE")
+            yield self.stormdb.execute(u"PRAGMA journal_mode = WAL")
 
         else:
             self._logger.debug("PRAGMA journal_mode = %s (no change) [%s]", journal_mode, self._file_path)
@@ -164,33 +188,34 @@ class Database(object):
         #
         if not synchronous in (u"NORMAL", u"1"):
             self._logger.debug("PRAGMA synchronous = NORMAL (previously: %s) [%s]", synchronous, self._file_path)
-            self._cursor.execute(u"PRAGMA synchronous = NORMAL")
+            yield self.stormdb.execute(u"PRAGMA synchronous = NORMAL")
 
         else:
             self._logger.debug("PRAGMA synchronous = %s (no change) [%s]", synchronous, self._file_path)
 
+    @inlineCallbacks
     def _prepare_version(self):
         assert self._cursor is not None, "Database.close() has been called or Database.open() has not been called"
         assert self._connection is not None, "Database.close() has been called or Database.open() has not been called"
 
         # check is the database contains an 'option' table
         try:
-            count, = next(self.execute(u"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'option'"))
-        except StopIteration:
+            count, = yield self.stormdb.fetchone(u"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'option'")
+        except TypeError:
             raise RuntimeError()
 
         if count:
             # get version from required 'option' table
             try:
-                version, = next(self.execute(u"SELECT value FROM option WHERE key == 'database_version' LIMIT 1"))
-            except StopIteration:
+                version, = yield self.stormdb.fetchone(u"SELECT value FROM option WHERE key == 'database_version' LIMIT 1")
+            except TypeError:
                 # the 'database_version' key was not found
                 version = u"0"
         else:
             # the 'option' table probably hasn't been created yet
             version = u"0"
 
-        self._database_version = self.check_database(version)
+        self._database_version = yield self.check_database(version)
         assert isinstance(self._database_version, (int, long)), type(self._database_version)
 
     @property
@@ -247,8 +272,8 @@ class Database(object):
             # returning False to let Python reraise the exception.
             return False
 
-    @attach_explain_query_plan
-    @attach_runtime_statistics(u"{0.__class__.__name__}.{function_name} {1} [{0.file_path}]")
+    #@attach_explain_query_plan
+    #@attach_runtime_statistics(u"{0.__class__.__name__}.{function_name} {1} [{0.file_path}]")
     def execute(self, statement, bindings=(), get_lastrowid=False):
         """
         Execute one SQL statement.
@@ -295,7 +320,7 @@ class Database(object):
             result = self._cursor.lastrowid
         return result
 
-    @attach_runtime_statistics(u"{0.__class__.__name__}.{function_name} {1} [{0.file_path}]")
+    #@attach_runtime_statistics(u"{0.__class__.__name__}.{function_name} {1} [{0.file_path}]")
     def executescript(self, statements):
         assert self._cursor is not None, "Database.close() has been called or Database.open() has not been called"
         assert self._connection is not None, "Database.close() has been called or Database.open() has not been called"
@@ -306,8 +331,8 @@ class Database(object):
         self._logger.log(logging.NOTSET, "%s [%s]", statements, self._file_path)
         return self._cursor.executescript(statements)
 
-    @attach_explain_query_plan
-    @attach_runtime_statistics(u"{0.__class__.__name__}.{function_name} {1} [{0.file_path}]")
+    #@attach_explain_query_plan
+    #@attach_runtime_statistics(u"{0.__class__.__name__}.{function_name} {1} [{0.file_path}]")
     def executemany(self, statement, sequenceofbindings):
         """
         Execute one SQL statement several times.
@@ -366,7 +391,7 @@ class Database(object):
         self._logger.log(logging.NOTSET, "%s [%s]", statement, self._file_path)
         return self._cursor.executemany(statement, sequenceofbindings)
 
-    @attach_runtime_statistics(u"{0.__class__.__name__}.{function_name} [{0.file_path}]")
+    #@attach_runtime_statistics(u"{0.__class__.__name__}.{function_name} [{0.file_path}]")
     def commit(self, exiting=False):
         assert self._cursor is not None, "Database.close() has been called or Database.open() has not been called"
         assert self._connection is not None, "Database.close() has been called or Database.open() has not been called"
