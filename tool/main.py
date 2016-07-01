@@ -9,6 +9,7 @@ import signal
 from twisted.internet import reactor
 from twisted.python.log import addObserver
 
+from ..util import blockingCallFromThread
 from ..dispersy import Dispersy
 from ..endpoint import StandaloneEndpoint
 
@@ -80,17 +81,19 @@ def main_real(setup=None):
 
     # setup
     dispersy = Dispersy(StandaloneEndpoint(opt.port, opt.ip), unicode(opt.statedir), unicode(opt.databasefile))
+    blockingCallFromThread(reactor, dispersy.initialize_statistics)
     dispersy.statistics.enable_debug_statistics(opt.debugstatistics)
 
     def signal_handler(sig, frame):
         logger.warning("Received signal '%s' in %s (shutting down)", sig, frame)
-        dispersy.stop()
+        blockingCallFromThread(reactor, dispersy.stop)
         reactor.stop()
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
     # start
-    if not dispersy.start():
+    dispersy_started = yield dispersy.start()
+    if not dispersy_started:
         raise RuntimeError("Unable to start Dispersy")
 
     # This has to be scheduled _after_ starting dispersy so the DB is opened by when this is actually executed.
