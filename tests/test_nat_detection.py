@@ -1,5 +1,8 @@
 from time import time
 
+from nose.twistedtools import deferred
+from twisted.internet.defer import inlineCallbacks
+
 from .dispersytestclass import DispersyTestFunc
 from ..util import call_on_reactor_thread, address_is_lan_without_netifaces
 
@@ -109,6 +112,7 @@ class TestNATDetection(DispersyTestFunc):
 
 
 class TestAddressEstimation(DispersyTestFunc):
+
     def test_address_in_lan_function(self):
         # Positive cases:
         assert address_is_lan_without_netifaces("192.168.1.5")
@@ -123,6 +127,8 @@ class TestAddressEstimation(DispersyTestFunc):
         self.assertFalse(address_is_lan_without_netifaces("123.123.123.123"))
         self.assertFalse(address_is_lan_without_netifaces("42.42.42.42"))
 
+    @deferred(timeout=10)
+    @inlineCallbacks
     def test_estimate_addresses_within_LAN(self):
         """
         Tests the estimate_lan_and_wan_addresses method while NODE and OTHER are within the same LAN.
@@ -131,25 +137,25 @@ class TestAddressEstimation(DispersyTestFunc):
         correct LAN address.  OTHER will not be able to determine the WAN address for NODE, hence
         this should remain unchanged.
         """
-        node, other = self.create_nodes(2)
-        node.send_identity(other)
+        node, other = yield self.create_nodes(2)
+        yield node.send_identity(other)
 
         incorrect_LAN = ("0.0.0.0", 0)
         incorrect_WAN = ("0.0.0.0", 0)
 
         # NODE contacts OTHER with incorrect addresses
-        other.give_message(node.create_introduction_request(other.my_candidate,
+        created_introduction_request = yield node.create_introduction_request(other.my_candidate,
                                                             incorrect_LAN,
                                                             incorrect_WAN,
                                                             True,
                                                             u"unknown",
                                                             None,
                                                             42,
-                                                            42),
-                           node)
+                                                            42)
+        yield other.give_message(created_introduction_request, node)
 
         # NODE should receive an introduction-response with the corrected LAN address
-        responses = node.receive_messages(names=[u"dispersy-introduction-response"])
+        responses = yield node.receive_messages(names=[u"dispersy-introduction-response"])
         self.assertEqual(len(responses), 1)
         for _, response in responses:
             self.assertEqual(response.payload.destination_address, node.lan_address)
