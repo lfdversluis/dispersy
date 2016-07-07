@@ -73,6 +73,7 @@ if (power_users.contains(change_author)) {
 }
 
 node {
+  deleteDir()
   sh "touch allstashes.txt"
   stash includes: "allstashes.txt", name: "allstashes.txt"
 }
@@ -121,6 +122,7 @@ def unstashAll() {
   dir('tribler/Tribler/'){
     unstashDispersy()
   }
+  echo "unstash all succeeded"
 }
 
 def unstashDispersy() {
@@ -154,9 +156,13 @@ def unstashAllResults() {
   def allStashes = readFile("allstashes.txt").split('\n')
   dir('output'){
     for (int i = 0; i < allStashes.size(); i++) {
+
       def stash = allStashes[i]
-      echo "Unstashing ${stash}"
-      unstash stash
+      if (stash != "") {
+        echo "Unstashing '${stash}'"
+        unstash stash
+      }
+
     }
   }
 }
@@ -277,17 +283,87 @@ gumby/run.py gumby/experiments/tribler/run_all_tests_parallel.conf
 def runAllChannelExperiment = {
   deleteDir()
   unstashAll()
-  stash "experiment_workdir"
+  stash includes: '**', name: "experiment_workdir"
+  echo "stashed XXXXXXX"
   try {
-    withEnv(['EXPERIMENT_CONF=gumby/experiments/dispersy/allchannel.conf']){
-      load "gumby/scripts/jenkins/run_experiment_in_free_cluster.groovy"
-    }
+    runOnFreeCluster('gumby/experiments/dispersy/allchannel.conf')
   } finally {
     dir('output'){
       unstash 'experiment_results'
     }
   }
 }
+
+def runOnFreeCluster(experimentConf){
+  //def experimentConf = env.EXPERIMENT_CONF
+  // stage 'Checkout gumby'
+  // checkoutGumby()
+
+  stage 'Find a free cluster'
+
+  sh "ls -l"
+
+  def experimentName
+  def clusterName
+  node('master') {
+    echo "Reading ${experimentConf}"
+
+    def confFile = readFile(experimentConf).replaceAll(/#.*/,"")
+    // This stopped working after some jenkins update, no error, no exception,
+    // the rest of the node {} gets skipped and it goes on as if nothing
+    // happened.
+    // def configObject = new ConfigSlurper().parse(confFile) def
+    // neededNodes = configObject.das4_node_amount
+    // experimentName = configObject.experiment_name configObject = null
+
+    def getNodes = {
+      def matcher = confFile =~ 'das4_node_amount.*= *(.+)'
+      matcher[0][1]
+    }
+
+    def getExperimentName = {
+      def matcher = confFile =~ 'experiment_name.*= *(.+)'
+      matcher[0][1]
+    }
+
+    neededNodes = getNodes()
+    experimentName = getExperimentName()
+
+    try {
+      neededNodes = "${NODES}"
+    } catch (groovy.lang.MissingPropertyException err) {
+      echo "NODES env var not passed, using config file value"
+    }
+
+    sh "gumby/scripts/find_free_cluster.sh ${neededNodes}"
+    clusterName = readFile('cluster.txt')
+  }
+
+  stage "Run ${experimentName}"
+
+  node(clusterName) {
+    try {
+
+      unstash "experiment_workdir"
+
+      // stage 'Check out Gumby'
+      // checkoutGumby()
+
+      // stage 'Check out Tribler'
+      // gitCheckout('https://github.com/Tribler/tribler.git', '*/devel')
+
+      sh """
+gumby/scripts/build_virtualenv.sh
+source ~/venv/bin/activate
+
+./gumby/run.py ${experimentConf}
+"""
+    } finally {
+      stash includes: 'output/**', name: 'experiment_results'
+    }
+  }
+}
+
 stage "Checkout"
 
 parallel "Checkout Tribler without dispersy": {
@@ -353,15 +429,15 @@ try {
 } catch (all) {
   jobFailed = true
   throw all
-  } finally {
+} finally {
   if (! skipTests) {
     node {
       deleteDir()
       unstashAllResults()
-      step([$class: 'JUnitResultArchiver', testResults: '**/*nosetests.xml'])
       if (jobFailed) {
-          archive '**'
-        }
+        archive '**'
+      }
+      step([$class: 'JUnitResultArchiver', testResults: '**/*nosetests.xml'])
       // step([$class: 'JUnitResultArchiver',
       //       testDataPublishers: [[$class: 'TestDataPublisher']],
       //       healthScaleFactor: 1000,
@@ -395,11 +471,11 @@ diff-cover `find $OUTPUT/.. -iname coverage.xml` --compare-branch origin/$CHANGE
 
 // stage "Experiments"
 try {
-if (! skipExperiments) {
-  node('master') {
-    runTestsAndStash(runAllChannelExperiment, 'allchannel_results')
+  if (! skipExperiments) {
+    node('master') {
+      runTestsAndStash(runAllChannelExperiment, 'allchannel_results')
+    }
   }
-}
 } finally {
   node('master'){
     echo "??????"
