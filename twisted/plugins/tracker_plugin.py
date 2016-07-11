@@ -76,7 +76,7 @@ class TrackerDispersy(Dispersy):
         yield self.initialize_statistics()
         tracker_started = yield super(TrackerDispersy, self).start()
         if tracker_started:
-            self._create_my_member()
+            yield self._create_my_member()
             self._load_persistent_storage()
 
             self.register_task("unload inactive communities",
@@ -92,10 +92,11 @@ class TrackerDispersy(Dispersy):
             returnValue(True)
         returnValue(False)
 
+    @inlineCallbacks
     def _create_my_member(self):
         # generate a new my-member
         ec = self.crypto.generate_key(u"very-low")
-        self._my_member = self.get_member(private_key=self.crypto.key_to_bin(ec))
+        self._my_member = yield self.get_member(private_key=self.crypto.key_to_bin(ec))
 
     @property
     def persistent_storage_filename(self):
