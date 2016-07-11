@@ -108,7 +108,8 @@ class TrackerDispersy(Dispersy):
             community = yield super(TrackerDispersy, self).get_community(cid, True, True)
             returnValue(community)
         except CommunityNotFoundException:
-            community = yield TrackerCommunity.init_community(self, self.get_member(mid=cid), self._my_member)
+            member = yield self.get_member(mid=cid)
+            community = yield TrackerCommunity.init_community(self, member, self._my_member)
             returnValue(community)
 
     @inlineCallbacks
