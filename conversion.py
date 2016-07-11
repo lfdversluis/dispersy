@@ -983,7 +983,7 @@ class NoDefBinaryConversion(Conversion):
         assert isinstance(message, (Message, Message.Implementation)), type(message)
         return message.name in self._encode_message_map
 
-    @attach_runtime_statistics(u"{0.__class__.__name__}.{function_name} {1.name}")
+    #@attach_runtime_statistics(u"{0.__class__.__name__}.{function_name} {1.name}")
     @inlineCallbacks
     def encode_message(self, message, sign=True):
         assert isinstance(message, Message.Implementation), message
@@ -1188,7 +1188,7 @@ class NoDefBinaryConversion(Conversion):
 
         return self._decode_message_map[data[22]].meta
 
-    @attach_runtime_statistics(u"{0.__class__.__name__}.{function_name} {return_value}")
+    #@attach_runtime_statistics(u"{0.__class__.__name__}.{function_name} {return_value}")
     @inlineCallbacks
     def decode_message(self, candidate, data, verify=True, allow_empty_signature=False, source="unknown"):
         """
