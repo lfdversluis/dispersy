@@ -73,6 +73,7 @@ class TrackerDispersy(Dispersy):
     @inlineCallbacks
     def start(self):
         assert isInIOThread()
+        yield self.initialize_statistics()
         tracker_started = yield super(TrackerDispersy, self).start()
         if tracker_started:
             self._create_my_member()
