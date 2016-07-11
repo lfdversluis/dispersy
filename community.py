@@ -781,7 +781,7 @@ class Community(TaskManager):
 
     # instead of pivot + capacity, compare pivot - capacity and pivot + capacity to see which globaltime range is largest
     @runtime_duration_warning(0.5)
-    @attach_runtime_statistics(u"{0.__class__.__name__}.{function_name}")
+    #@attach_runtime_statistics(u"{0.__class__.__name__}.{function_name}")
     @inlineCallbacks
     def _dispersy_claim_sync_bloom_filter_largest(self, request_cache):
         if __debug__:
@@ -930,7 +930,7 @@ class Community(TaskManager):
 
     # instead of pivot + capacity, compare pivot - capacity and pivot + capacity to see which globaltime range is largest
     @runtime_duration_warning(0.5)
-    @attach_runtime_statistics(u"{0.__class__.__name__}.{function_name}")
+    #@attach_runtime_statistics(u"{0.__class__.__name__}.{function_name}")
     @inlineCallbacks
     # TODO(Laurens): This method is never used
     def _dispersy_claim_sync_bloom_filter_modulo(self, request_cache):
