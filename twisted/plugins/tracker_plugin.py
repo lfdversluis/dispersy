@@ -77,13 +77,13 @@ class TrackerDispersy(Dispersy):
         tracker_started = yield super(TrackerDispersy, self).start()
         if tracker_started:
             yield self._create_my_member()
-            self._load_persistent_storage()
+            yield self._load_persistent_storage()
 
             self.register_task("unload inactive communities",
                                LoopingCall(self.unload_inactive_communities)).start(COMMUNITY_CLEANUP_INTERVAL)
 
-            self.define_auto_load(TrackerCommunity, self._my_member)
-            self.define_auto_load(TrackerHardKilledCommunity, self._my_member)
+            yield self.define_auto_load(TrackerCommunity, self._my_member)
+            yield self.define_auto_load(TrackerHardKilledCommunity, self._my_member)
 
             if not self._silent:
                 self._statistics_looping_call = LoopingCall(self._report_statistics)
@@ -111,6 +111,7 @@ class TrackerDispersy(Dispersy):
             community = yield TrackerCommunity.init_community(self, self.get_member(mid=cid), self._my_member)
             returnValue(community)
 
+    @inlineCallbacks
     def _load_persistent_storage(self):
         # load all destroyed communities
         try:
@@ -123,8 +124,8 @@ class TrackerDispersy(Dispersy):
             candidate = LoopbackCandidate()
             for pkt in reversed(packets):
                 try:
-                    self.on_incoming_packets([(candidate, pkt)], cache=False, timestamp=time())
-                except:
+                    yield self.on_incoming_packets([(candidate, pkt)], cache=False, timestamp=time())
+                except Exception:
                     self._logger.exception("Error while loading from persistent-destroy-community.data")
 
     def unload_inactive_communities(self):
