@@ -1606,7 +1606,7 @@ class Dispersy(TaskManager):
 
             # add packet to database
             message.packet_id = yield self._database.stormdb.execute(
-                u"INSERT  INTO sync (community, member, global_time, meta_message, packet, sequence) "
+                u"INSERT INTO sync (community, member, global_time, meta_message, packet, sequence) "
                 u"VALUES (?, ?, ?, ?, ?, ?)",
                (message.community.database_id,
                 message.authentication.member.database_id,
@@ -1798,8 +1798,8 @@ ORDER BY global_time""", (meta.database_id, member_database_id))
         if store:
             my_messages = sum(message.authentication.member == message.community.my_member for message in messages)
             if my_messages:
-                self._logger.debug("commit user generated message")
-                self._database.commit()
+                #self._logger.debug("commit user generated message")
+                #self._database.commit()
 
                 messages[0].community.statistics.increase_msg_count(u"created", messages[0].meta.name, my_messages)
 
