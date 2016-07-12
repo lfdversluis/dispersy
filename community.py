@@ -2934,7 +2934,7 @@ class Community(TaskManager):
                 tunnel = False
                 candidate = Candidate(sock_addr, tunnel)
 
-            created_impl = meta_puncture.impl(authentication=(self.my_member,), distribution=(self.global_time,), destination=(candidate,), payload=(self._dispersy._lan_address, self._dispersy._wan_address, message.payload.identifier))
+            created_impl = yield meta_puncture.impl(authentication=(self.my_member,), distribution=(self.global_time,), destination=(candidate,), payload=(self._dispersy._lan_address, self._dispersy._wan_address, message.payload.identifier))
             punctures.append(created_impl)
             self._logger.debug("%s asked us to send a puncture to %s", message.candidate, candidate)
 
