@@ -1606,7 +1606,7 @@ class Dispersy(TaskManager):
 
             # add packet to database
             message.packet_id = yield self._database.stormdb.execute(
-                u"INSERT INTO sync (community, member, global_time, meta_message, packet, sequence) "
+                u"INSERT OR IGNORE INTO sync (community, member, global_time, meta_message, packet, sequence) "
                 u"VALUES (?, ?, ?, ?, ?, ?)",
                (message.community.database_id,
                 message.authentication.member.database_id,
