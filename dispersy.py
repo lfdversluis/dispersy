@@ -2022,7 +2022,8 @@ ORDER BY global_time""", (meta.database_id, member_database_id))
 
                     # 10/10/12 Boudewijn: the check_callback is required to obtain the
                     # message.payload.packet
-                    for _ in undo_message.check_callback([undo_message]):
+                    undo_message_res = yield undo_message.check_callback([undo_message])
+                    for _ in undo_message_res:
                         pass
 
                     # get the message that undo_message refers to

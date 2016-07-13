@@ -546,7 +546,7 @@ class Community(TaskManager):
                 message = yield self._dispersy.convert_packet_to_message(str(packet), self, verify=False)
                 if message:
                     self._logger.debug("processing %s", message.name)
-                    mapping[message.database_id]([message], initializing=True)
+                    yield mapping[message.database_id]([message], initializing=True)
                 else:
                     # TODO: when a packet conversion fails we must drop something, and preferably check
                     # all messages in the database again...
@@ -3603,7 +3603,7 @@ class Community(TaskManager):
                                              u"WHERE community = ? AND member = ? AND global_time = ?", parameters)
 
         for meta, sub_messages in groupby(real_messages, key=lambda x: x.payload.packet.meta):
-            meta.undo_callback([(message.payload.member, message.payload.global_time, message.payload.packet) for message in sub_messages])
+            yield meta.undo_callback([(message.payload.member, message.payload.global_time, message.payload.packet) for message in sub_messages])
 
     @inlineCallbacks
     def create_destroy_community(self, degree, sign_with_master=False, store=True, update=True, forward=True):
@@ -3768,14 +3768,14 @@ class Community(TaskManager):
 
         if undo:
             yield executemany(u"UPDATE sync SET undone = 1 WHERE id = ?", ((message.packet_id,) for message in undo))
-            meta.undo_callback([(message.authentication.member, message.distribution.global_time, message) for message in undo])
+            yield meta.undo_callback([(message.authentication.member, message.distribution.global_time, message) for message in undo])
 
             # notify that global times have changed
             # meta.self.update_sync_range(meta, [message.distribution.global_time for message in undo])
 
         if redo:
             yield executemany(u"UPDATE sync SET undone = 0 WHERE id = ?", ((message.packet_id,) for message in redo))
-            meta.handle_callback(redo)
+            yield meta.handle_callback(redo)
 
     @inlineCallbacks
     def _claim_master_member_sequence_number(self, meta):
