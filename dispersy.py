@@ -2320,6 +2320,7 @@ ORDER BY global_time""", (meta.database_id, member_database_id))
         def check_stop_status(return_values):
             failures = []
             self._logger.debug("Checking dispersy stop results")
+            self._logger.error("CHECK_STOP_STATUS %s %s", results.keys(), return_values)
             for name, result in zip(results.keys(), return_values):
                 if isinstance(result, Failure) or not result:
                     failures.append((name, result))
