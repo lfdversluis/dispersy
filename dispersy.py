@@ -1605,6 +1605,9 @@ class Dispersy(TaskManager):
                                message.authentication.member.database_id, message.distribution.global_time)
 
             # add packet to database
+            self._logger.error("COMBINATION: %s %s %s", message.community.database_id, message.authentication.member.database_id, (message.distribution.sequence_number if
+                 isinstance(meta.distribution, FullSyncDistribution)
+                 and message.distribution.enable_sequence_number else None))
             message.packet_id = yield self._database.stormdb.execute(
                 u"INSERT INTO sync (community, member, global_time, meta_message, packet, sequence) "
                 u"VALUES (?, ?, ?, ?, ?, ?)",
