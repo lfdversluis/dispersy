@@ -685,10 +685,8 @@ class Community(TaskManager):
         return (1500 - 60 - 8 - 51 - self._my_member.signature_length - 21 - 30) * 8
 
     @property
-    @inlineCallbacks
     def dispersy_sync_bloom_filter_strategy(self):
-        res = yield self._dispersy_claim_sync_bloom_filter_largest
-        returnValue(res)
+        return self._dispersy_claim_sync_bloom_filter_largest
 
     @property
     def dispersy_sync_skip_enable(self):
