@@ -14,6 +14,7 @@ import logging
 from math import ceil
 from random import random, Random, randint, shuffle, uniform
 from time import time
+from itertools import izip
 
 from twisted.internet import reactor
 from twisted.internet.defer import inlineCallbacks
@@ -1944,7 +1945,11 @@ class Community(TaskManager):
         new_packets = set()
         for received_key in received_keys:
             for key in self._delayed_key.keys():
-                if all(k is None or k == rk for k, rk in zip(key, received_key)):
+                print "\nKEYS -------- "
+                print received_key
+                print key
+                print "------------\n"
+                if all(k is None or k == rk for k, rk in izip(key, received_key)):
                     for delayed in self._delayed_key.pop(key):
                         delayed_keys = self._delayed_value[delayed]
                         delayed_keys.remove(key)
