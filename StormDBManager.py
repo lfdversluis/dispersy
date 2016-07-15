@@ -89,7 +89,7 @@ class StormDBManager:
 
         """
 
-        @transact
+        # @transact
         def _execute(self, query, arguments=None, get_lastrowid=False):
             connection = Connection(self._database)
             ret = None
@@ -118,7 +118,7 @@ class StormDBManager:
         def _execute(connection, query, arguments=None):
             connection.execute(query, arguments, noresult=True)
 
-        @transact
+        # @transact
         def _executemany(self, query, list):
             connection = Connection(self._database)
             for item in list:
@@ -141,7 +141,7 @@ class StormDBManager:
         def _execute(connection, query):
             connection.execute(query, noresult=True)
 
-        @transact
+        # @transact
         def _executescript(self, sql_statements):
             connection = Connection(self._database)
             for sql_statement in sql_statements:
@@ -164,7 +164,7 @@ class StormDBManager:
         None instead of a StopIterationException.
 
         """
-        @transact
+        # @transact
         def _fetchone(self, query, arguments=None):
             connection = Connection(self._database)
             result = connection.execute(query, arguments).get_one()
@@ -185,7 +185,7 @@ class StormDBManager:
         Returns: A deferred that fires with a list of tuple results that matches the query, possibly empty.
 
         """
-        @transact
+        # @transact
         def _fetchall(self, query, arguments=None):
             connection = Connection(self._database)
             res = connection.execute(query, arguments).get_all()
@@ -205,7 +205,7 @@ class StormDBManager:
         Returns: A deferred that fires with None when the data has been inserted.
 
         """
-        @transact
+        # @transact
         def _insert(self, table_name, **kwargs):
             connection = Connection(self._database)
             self._insert(connection, table_name, **kwargs)
@@ -249,7 +249,7 @@ class StormDBManager:
         Returns: A deferred that fires with None once the bulk insertion is done.
 
         """
-        @transact
+        # @transact
         def _insert_many(self, table_name, arg_list):
             if len(arg_list) == 0:
                 return
