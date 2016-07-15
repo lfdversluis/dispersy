@@ -226,6 +226,9 @@ class StandaloneEndpoint(Endpoint):
                 sock_addr, data = packet
                 self.packet_handlers[prefix](sock_addr, data[len(prefix):])
             else:
+                sock_addr, _ = packet
+                if sock_addr[0] == "127.0.0.1":
+                    continue
                 normal_packets.append(packet)
 
         if normal_packets:
