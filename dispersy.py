@@ -714,7 +714,6 @@ class Dispersy(TaskManager):
         return self._communities.values()
 
     @inlineCallbacks
-    # TODO(Laurens): This method is never called?
     def get_message(self, community, member, global_time):
         """
         Returns a Member.Implementation instance uniquely identified by its community, member, and

@@ -2014,12 +2014,13 @@ class Community(TaskManager):
 
         del self._delayed_value[delayed]
 
+    @inlineCallbacks
     def _periodically_clean_delayed(self):
         now = time()
         for delayed in self._delayed_value.keys():
             if now > delayed.timestamp + 10:
                 self._remove_delayed(delayed)
-                delayed.on_timeout()
+                yield delayed.on_timeout()
                 self._statistics.increase_delay_msg_count(u"timeout")
                 self._statistics.increase_msg_count(u"drop", u"delay_timeout:%s" % delayed)
 

@@ -1248,7 +1248,6 @@ class NoDefBinaryConversion(Conversion):
         if placeholder.verify and not has_valid_signature:
             raise DropPacket("Invalid signature")
 
-
         placeholder_impl = placeholder.meta.Implementation(placeholder.meta, placeholder.authentication, placeholder.resolution, placeholder.distribution, placeholder.destination, placeholder.payload, conversion=self, candidate=candidate, source=source, packet=placeholder.data)
         returnValue(placeholder_impl)
 

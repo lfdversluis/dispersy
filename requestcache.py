@@ -2,6 +2,7 @@ from random import random
 import logging
 
 from twisted.internet import reactor
+from twisted.internet.defer import inlineCallbacks
 from twisted.python.threadable import isInIOThread
 
 from .taskmanager import TaskManager
@@ -89,7 +90,7 @@ class IntroductionRequestCache(RandomNumberCache):
     @property
     def timeout_delay(self):
         # we will accept the response at most 10.5 seconds after our request
-        return 10.5
+        return 100.5
 
     def __init__(self, community, helper_candidate):
         super(IntroductionRequestCache, self).__init__(community.request_cache, u"introduction-request")
@@ -198,6 +199,7 @@ class RequestCache(TaskManager):
         self.cancel_pending_task(cache)
         return cache
 
+    @inlineCallbacks
     def _on_timeout(self, cache):
         """
         Called CACHE.timeout_delay seconds after CACHE was added to this RequestCache.
@@ -210,7 +212,7 @@ class RequestCache(TaskManager):
         assert isinstance(cache, NumberCache), type(cache)
 
         self._logger.debug("timeout on %s", cache)
-        cache.on_timeout()
+        yield cache.on_timeout()
 
         # the on_timeout call could have already removed the identifier from the cache using pop
         identifier = self._create_identifier(cache.number, cache.prefix)

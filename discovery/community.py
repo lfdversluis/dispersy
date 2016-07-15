@@ -483,8 +483,9 @@ class DiscoveryCommunity(Community):
             self.preference_list = preference_list
             self.allow_sync = allow_sync
 
+        @inlineCallbacks
         def on_timeout(self):
-            self.community.send_introduction_request(self.requested_candidate, allow_sync=self.allow_sync)
+            yield self.community.send_introduction_request(self.requested_candidate, allow_sync=self.allow_sync)
             self.community.peer_cache.inc_num_fails(self.requested_candidate)
 
     @inlineCallbacks

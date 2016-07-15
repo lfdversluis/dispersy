@@ -84,6 +84,7 @@ class Database(object):
         self._connection = None
         self._cursor = None
         self._database_version = 0
+        self.temp_db_path = None
         # Storm does not know :memory: and it doesn't work when doing things multi-threaded. So generate a tmp database
         # Note that this database is a file database.
         if self._file_path == ":memory:":
