@@ -184,7 +184,14 @@ class DebugNode(TaskManager):
         assert all(isinstance(message, Message.Implementation) for message in messages), [type(message) for message in messages]
         assert isinstance(cache, bool), type(cache)
 
-        packets = [message.packet if message.packet else self.encode_message(message) for message in messages]
+        packets = []
+        for message in messages:
+            if message.packet:
+                packets.append(message.packet)
+            else:
+                m = yield self.encode_message(message)
+                packets.append(m)
+
         self._logger.debug("%s giving %d messages (%d bytes)",
                            self.my_candidate, len(messages), sum(len(packet) for packet in packets))
         yield self.give_packets(packets, source, cache=cache)
@@ -211,7 +218,7 @@ class DebugNode(TaskManager):
         assert isinstance(candidate, Candidate)
 
         self._logger.debug("%s to %s", message.name, candidate)
-        self.encode_message(message)
+        yield self.encode_message(message)
 
         res = yield self.send_packet(message.packet, candidate)
         returnValue(res)
