@@ -1913,6 +1913,8 @@ ORDER BY global_time""", (meta.database_id, member_database_id))
         assert len(messages) > 0
         assert all(isinstance(message, Message.Implementation) for message in messages)
 
+        self._logger.error("SENDING MESSAGE META: %s", messages[0].meta)
+
         messages_send = False
         if len(candidates) and len(messages):
             packets = [message.packet for message in messages]
