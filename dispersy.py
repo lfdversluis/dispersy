@@ -1818,6 +1818,7 @@ ORDER BY global_time""", (meta.database_id, member_database_id))
         Call the handle callback of a list of messages of the same type.
         """
         try:
+            self._logger.error("LE CALLBACK: %s", messages[0].handle_callback)
             yield messages[0].handle_callback(messages)
             returnValue(True)
         except (SystemExit, KeyboardInterrupt, GeneratorExit, AssertionError):
