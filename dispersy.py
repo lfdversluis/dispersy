@@ -40,7 +40,7 @@ import logging
 import os
 from collections import defaultdict, Iterable, OrderedDict
 from hashlib import sha1
-from itertools import groupby, count
+from itertools import groupby, count, product
 from pprint import pformat
 from socket import inet_aton
 from struct import unpack_from
@@ -1828,6 +1828,9 @@ ORDER BY global_time""", (meta.database_id, member_database_id)))
         assert isinstance(messages, (tuple, list))
         assert len(messages) > 0
         assert all(isinstance(message, Message.Implementation) for message in messages)
+
+        for d_message, d_candidate in product(messages, candidates):
+            self._logger.error("SENDING MESSAGE META: %s TO %s", d_message.meta, d_candidate)
 
         messages_send = False
         if len(candidates) and len(messages):
