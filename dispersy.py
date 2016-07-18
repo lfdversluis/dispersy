@@ -1583,6 +1583,11 @@ class Dispersy(TaskManager):
         assert all(isinstance(message.distribution, SyncDistribution.Implementation) for message in messages)
         # ensure no duplicate messages are present, this MUST HAVE been checked before calling this
         # method!
+        for message in messages:
+            self._logger.error("LE LIST: %s %s", message.authentication.member.database_id, message.distribution.global_time)
+        self._logger.error("LE SET: %s", set((message.authentication.member.database_id, message.distribution.global_time) for message in messages))
+        self._logger.error("SIZES %s vs %s", len(messages), len(
+            set((message.authentication.member.database_id, message.distribution.global_time) for message in messages)))
         assert len(messages) == len(set((message.authentication.member.database_id, message.distribution.global_time) for message in messages)), messages[0].name
 
         meta = messages[0].meta
