@@ -2201,7 +2201,9 @@ class Community(TaskManager):
             returnValue(True)
 
         meta = messages[0].meta
-        self._logger.error("MESSAGE META: %s", meta)
+        for message in messages:
+            self._logger.error("MESSAGE META: %s FROM %s", meta, message.candidate)
+
         debug_count = len(messages)
         debug_begin = time()
 
