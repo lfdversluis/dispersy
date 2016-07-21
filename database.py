@@ -135,8 +135,8 @@ class Database(object):
         return True
 
     def _connect(self):
-        self._connection = self.stormdb.connection._raw_connection
-        self._cursor = self._connection.cursor()
+        self._connection = self.stormdb.connection
+        self._cursor = self.stormdb._cursor
 
     @inlineCallbacks
     def _initial_statements(self):
