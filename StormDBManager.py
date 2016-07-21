@@ -1,14 +1,15 @@
 import logging
 
-from storm.database import Connection
 from storm.database import create_database
 from storm.exceptions import OperationalError
-from storm.twisted.transact import Transactor, transact
+from storm.twisted.transact import Transactor
 from twisted.internet import reactor
 from twisted.internet.defer import DeferredLock, inlineCallbacks
 
+from database import IgnoreCommits
 
-class StormDBManager:
+
+class StormDBManager(Database):
     """
     The StormDBManager is a manager that runs queries using the Storm Framework.
     These queries will be run on the Twisted thread-pool to ensure asynchronous, non-blocking behavior.
@@ -24,7 +25,10 @@ class StormDBManager:
         self.db_path = db_path
         self._database = None
         self.connection = None
+        self._cursor = None
         self._version = 0
+        self._pending_commits = 0
+        self.store = None
 
         # The transactor is required when you have methods decorated with the @transact decorator
         # This field name must NOT be changed.
@@ -39,7 +43,9 @@ class StormDBManager:
         Open/create the database and initialize the version.
         """
         self._database = create_database(self.db_path)
-        self.connection = Connection(self._database)
+        self.connection = self._database.raw_connect()
+        self._cursor = self.connection.cursor()
+
         self._version = 0
         yield self._retrieve_version()
 
@@ -75,7 +81,7 @@ class StormDBManager:
         """
         return self.db_lock.run(callable, *args, **kwargs)
 
-    def execute(self, query, arguments=None, get_lastrowid=False):
+    def execute(self, query, arguments=(), get_lastrowid=False):
         """
         Executes a query on the twisted thread pool using the Storm framework.
 
@@ -90,15 +96,15 @@ class StormDBManager:
         """
 
         # @transact
-        def _execute(self, query, arguments=None, get_lastrowid=False):
-            connection = Connection(self._database)
+        def _execute(self, query, arguments=(), get_lastrowid=False):
+            # connection = Connection(self._database)
             ret = None
             if get_lastrowid:
-                result = connection.execute(query, arguments, noresult=False)
-                ret = result._raw_cursor.lastrowid
+                self._cursor.execute(query, arguments)
+                ret = self._cursor.lastrowid
             else:
-                connection.execute(query, arguments, noresult=True)
-            connection.close()
+                self._cursor.execute(query, arguments)
+            # connection.close()
             return ret
 
         return self.db_lock.run(_execute, self, query, arguments, get_lastrowid)
@@ -115,15 +121,17 @@ class StormDBManager:
         Returns: A deferred that fires once the execution is done, the result will be None.
 
         """
-        def _execute(connection, query, arguments=None):
-            connection.execute(query, arguments, noresult=True)
+        # def _execute(connection, query, arguments=()):
+        #     connection.execute(query, arguments, noresult=True)
 
         # @transact
         def _executemany(self, query, list):
-            connection = Connection(self._database)
-            for item in list:
-                _execute(connection, query, item)
-            connection.close()
+            # connection = Connection(self._database)
+            self._cursor.executemany(query, list)
+            # for item in list:
+            #     self._cursor.executemany(query, list)
+                # _execute(connection, query, item)
+            # connection.close()
         return self.db_lock.run(_executemany, self, query, list)
 
     def executescript(self, sql_statements):
@@ -138,18 +146,18 @@ class StormDBManager:
         Returns: A deferred that fires with None once all statements have been executed.
 
         """
-        def _execute(connection, query):
-            connection.execute(query, noresult=True)
+        # def _execute(connection, query):
+        #     connection.execute(query, noresult=True)
 
         # @transact
         def _executescript(self, sql_statements):
-            connection = Connection(self._database)
+            # connection = Connection(self._database)
             for sql_statement in sql_statements:
-                _execute(connection, sql_statement)
-            connection.close()
+                self.execute(sql_statement)
+            # connection.close()
         return self.db_lock.run(_executescript, self, sql_statements)
 
-    def fetchone(self, query, arguments=None):
+    def fetchone(self, query, arguments=()):
         """
         Executes a query on the twisted thread pool using the Storm framework and returns the first result.
         The optional arguments should be provided when running a parametrized query. It has to be an iterable data
@@ -165,15 +173,19 @@ class StormDBManager:
 
         """
         # @transact
-        def _fetchone(self, query, arguments=None):
-            connection = Connection(self._database)
-            result = connection.execute(query, arguments).get_one()
-            connection.close()
-            return result
+        def _fetchone(self, query, arguments=()):
+            # connection = Connection(self._database)
+            # result = connection.execute(query, arguments).get_one()
+            # connection.close()
+            # return result
+            try:
+                return self._cursor.execute(query, arguments).next()
+            except (StopIteration, OperationalError):
+                return None
 
         return self.db_lock.run(_fetchone, self, query, arguments)
 
-    def fetchall(self, query, arguments=None):
+    def fetchall(self, query, arguments=()):
         """
         Executes a query on the twisted thread pool using the Storm framework and returns a list of tuples containing
         all matches through a deferred.
@@ -186,11 +198,13 @@ class StormDBManager:
 
         """
         # @transact
-        def _fetchall(self, query, arguments=None):
-            connection = Connection(self._database)
-            res = connection.execute(query, arguments).get_all()
-            connection.close()
-            return res
+        def _fetchall(self, query, arguments=()):
+            # connection = Connection(self._database)
+            # res = connection.execute(query, arguments).get_all()
+            # connection.close()
+            # return res
+            return self._cursor.execute(query, arguments).fetchall()
+
 
         return self.db_lock.run(_fetchall, self, query, arguments)
 
@@ -207,12 +221,13 @@ class StormDBManager:
         """
         # @transact
         def _insert(self, table_name, **kwargs):
-            connection = Connection(self._database)
-            self._insert(connection, table_name, **kwargs)
-            connection.close()
+            # connection = Connection(self._database)
+            self._insert(table_name, **kwargs)
+            # connection.close()
+
         return self.db_lock.run(_insert, self, table_name, **kwargs)
 
-    def _insert(self, connection, table_name, **kwargs):
+    def _insert(self, table_name, **kwargs):
         """
         Utility function to insert data which is not decorated by the @transact to prevent a loop calling this function
         to create many threads.
@@ -235,7 +250,7 @@ class StormDBManager:
             questions = ','.join(('?',)*len(kwargs))
             sql = u'INSERT INTO %s %s VALUES (%s);' % (table_name, tuple(kwargs.keys()), questions)
 
-        connection.execute(sql, kwargs.values(), noresult=True)
+        self._cursor.execute(sql, kwargs.values())
 
     def insert_many(self, table_name, arg_list):
         """
@@ -253,10 +268,13 @@ class StormDBManager:
         def _insert_many(self, table_name, arg_list):
             if len(arg_list) == 0:
                 return
-            connection = Connection(self._database)
+            # connection = Connection(self._database)
+            # for args in arg_list:
+            #     self._insert(connection, table_name, **args)
+            # connection.close()
+
             for args in arg_list:
-                self._insert(connection, table_name, **args)
-            connection.close()
+                self._insert(table_name, **args)
 
         return self.db_lock.run(_insert_many, self, table_name, arg_list)
 
@@ -298,3 +316,63 @@ class StormDBManager:
         """
         sql = u"SELECT count(*) FROM %s LIMIT 1" % table_name
         return self.fetchone(sql)
+
+    def commit(self, exiting=False):
+        assert self._cursor is not None, "Database.close() has been called or Database.open() has not been called"
+
+        if self._pending_commits:
+            self._logger.debug("defer commit [%s]", self._file_path)
+            self._pending_commits += 1
+            return False
+
+        else:
+            self._logger.debug("commit [%s]", self.db_path)
+            for callback in self._commit_callbacks:
+                try:
+                    callback(exiting=exiting)
+                except Exception as exception:
+                    self._logger.exception("%s [%s]", exception, self._file_path)
+
+            return self._connection.commit()
+
+    def __enter__(self):
+        """
+        Enters a no-commit state.  The commit will be performed by __exit__.
+
+        @return: The method self.execute
+        """
+        self._logger.debug("disabling commit [%s]", self._file_path)
+        self._pending_commits = max(1, self._pending_commits)
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        """
+        Leaves a no-commit state.  A commit will be performed if Database.commit() was called while
+        in the no-commit state.
+        """
+
+        self._pending_commits, pending_commits = 0, self._pending_commits
+
+        if exc_type is None:
+            self._logger.debug("enabling commit [%s]", self._file_path)
+            if pending_commits > 1:
+                self._logger.debug("performing %d pending commits [%s]", pending_commits - 1, self._file_path)
+                self.commit()
+            return True
+
+        elif isinstance(exc_value, IgnoreCommits):
+            self._logger.debug("enabling commit without committing now [%s]", self._file_path)
+            return True
+
+        else:
+            # Niels 23-01-2013, an exception happened from within the with database block
+            # returning False to let Python reraise the exception.
+            return False
+
+    def attach_commit_callback(self, func):
+        assert not func in self._commit_callbacks
+        self._commit_callbacks.append(func)
+
+    def detach_commit_callback(self, func):
+        assert func in self._commit_callbacks
+        self._commit_callbacks.remove(func)
