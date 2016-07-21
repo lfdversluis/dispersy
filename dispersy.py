@@ -2314,8 +2314,8 @@ ORDER BY global_time""", (meta.database_id, member_database_id))
         # stop endpoint
         results[u"endpoint"] = maybeDeferred(self._endpoint.close, timeout)
 
-        # stop the database
-        results[u"database"] = maybeDeferred(self._database.stormdb.close).addCallback(self._database.close)
+        # stop the database + stormdb
+        results[u"database"] = maybeDeferred(self._database.close)
 
         def check_stop_status(return_values):
             failures = []

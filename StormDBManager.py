@@ -46,14 +46,14 @@ class StormDBManager:
 
     def close(self, commit=True):
         assert self._cursor is not None, "Database.close() has been called or Database.open() has not been called"
-        assert self._connection is not None, "Database.close() has been called or Database.open() has not been called"
+        assert self.connection is not None, "Database.close() has been called or Database.open() has not been called"
         if commit:
             self.commit(exiting=True)
         self._logger.debug("close database [%s]", self.db_path)
         self._cursor.close()
         self._cursor = None
-        self._connection.close()
-        self._connection = None
+        self.connection.close()
+        self.connection = None
         return True
 
     @property
@@ -340,7 +340,7 @@ class StormDBManager:
                 except Exception as exception:
                     self._logger.exception("%s [%s]", exception, self.db_path)
 
-            return self._connection.commit()
+            return self.connection.commit()
 
     def __enter__(self):
         """
