@@ -9,7 +9,7 @@ from twisted.internet.defer import DeferredLock, inlineCallbacks
 from database import IgnoreCommits
 
 
-class StormDBManager(Database):
+class StormDBManager:
     """
     The StormDBManager is a manager that runs queries using the Storm Framework.
     These queries will be run on the Twisted thread-pool to ensure asynchronous, non-blocking behavior.
@@ -28,11 +28,11 @@ class StormDBManager(Database):
         self._cursor = None
         self._version = 0
         self._pending_commits = 0
-        self.store = None
+        self._commit_callbacks = []
 
         # The transactor is required when you have methods decorated with the @transact decorator
         # This field name must NOT be changed.
-        self.transactor = Transactor(reactor.getThreadPool())
+        # self.transactor = Transactor(reactor.getThreadPool())
 
         # Create a DeferredLock that should be used by callers to schedule their call.
         self.db_lock = DeferredLock()
@@ -48,6 +48,18 @@ class StormDBManager(Database):
 
         self._version = 0
         yield self._retrieve_version()
+
+    def close(self, commit=True):
+        assert self._cursor is not None, "Database.close() has been called or Database.open() has not been called"
+        assert self._connection is not None, "Database.close() has been called or Database.open() has not been called"
+        if commit:
+            self.commit(exiting=True)
+        self._logger.debug("close database [%s]", self.db_path)
+        self._cursor.close()
+        self._cursor = None
+        self._connection.close()
+        self._connection = None
+        return True
 
     @property
     def version(self):
@@ -321,7 +333,7 @@ class StormDBManager(Database):
         assert self._cursor is not None, "Database.close() has been called or Database.open() has not been called"
 
         if self._pending_commits:
-            self._logger.debug("defer commit [%s]", self._file_path)
+            self._logger.debug("defer commit [%s]", self.db_path)
             self._pending_commits += 1
             return False
 
