@@ -1924,6 +1924,7 @@ class Community(TaskManager):
 
     def _drop(self, drop, packet, candidate):
         self._logger.warning("drop a %d byte packet %s from %s", len(packet), drop, candidate)
+        self._logger.error("DROP PACKET: %d byte packet %s from %s", len(packet), drop, candidate)
         if isinstance(drop, DropPacket):
             self._statistics.increase_msg_count(u"drop", u"drop_packet:%s" % drop)
 
@@ -2019,6 +2020,7 @@ class Community(TaskManager):
         now = time()
         for delayed in self._delayed_value.keys():
             if now > delayed.timestamp + 10:
+                self._logger.error("DROP PACKET: %d byte packet %s from %s", len(delayed.delayed), "timed out", delayed.candidate)
                 self._remove_delayed(delayed)
                 yield delayed.on_timeout()
                 self._statistics.increase_delay_msg_count(u"timeout")
@@ -2069,6 +2071,8 @@ class Community(TaskManager):
                     self._logger.warning(
                         "_on_incoming_packets: drop a %d byte packet (received packet for unknown conversion) from %s",
                         len(packet), candidate)
+
+                    self._logger.error("DROP PACKET: %d byte packet %s from %s", len(packet), "conversion not found", candidate)
                 self._statistics.increase_msg_count(
                     u"drop", u"convert_packets_into_batch:unknown conversion", len(cur_packets))
 
