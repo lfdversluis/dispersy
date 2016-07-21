@@ -2,12 +2,7 @@ import logging
 
 from storm.database import create_database
 from storm.exceptions import OperationalError
-from storm.twisted.transact import Transactor
-from twisted.internet import reactor
 from twisted.internet.defer import DeferredLock, inlineCallbacks
-
-from database import IgnoreCommits
-
 
 class StormDBManager:
     """
@@ -343,7 +338,7 @@ class StormDBManager:
                 try:
                     callback(exiting=exiting)
                 except Exception as exception:
-                    self._logger.exception("%s [%s]", exception, self._file_path)
+                    self._logger.exception("%s [%s]", exception, self.db_path)
 
             return self._connection.commit()
 
@@ -353,7 +348,7 @@ class StormDBManager:
 
         @return: The method self.execute
         """
-        self._logger.debug("disabling commit [%s]", self._file_path)
+        self._logger.debug("disabling commit [%s]", self.db_path)
         self._pending_commits = max(1, self._pending_commits)
         return self
 
@@ -366,16 +361,11 @@ class StormDBManager:
         self._pending_commits, pending_commits = 0, self._pending_commits
 
         if exc_type is None:
-            self._logger.debug("enabling commit [%s]", self._file_path)
+            self._logger.debug("enabling commit [%s]", self.db_path)
             if pending_commits > 1:
-                self._logger.debug("performing %d pending commits [%s]", pending_commits - 1, self._file_path)
+                self._logger.debug("performing %d pending commits [%s]", pending_commits - 1, self.db_path)
                 self.commit()
             return True
-
-        elif isinstance(exc_value, IgnoreCommits):
-            self._logger.debug("enabling commit without committing now [%s]", self._file_path)
-            return True
-
         else:
             # Niels 23-01-2013, an exception happened from within the with database block
             # returning False to let Python reraise the exception.
