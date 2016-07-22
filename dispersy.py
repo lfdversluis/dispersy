@@ -1815,7 +1815,6 @@ ORDER BY global_time""", (meta.database_id, member_database_id))
         Call the handle callback of a list of messages of the same type.
         """
         try:
-            self._logger.error("LE CALLBACK: %s", messages[0].handle_callback)
             yield messages[0].handle_callback(messages)
             returnValue(True)
         except (SystemExit, KeyboardInterrupt, GeneratorExit, AssertionError):
@@ -1909,9 +1908,6 @@ ORDER BY global_time""", (meta.database_id, member_database_id))
         assert isinstance(messages, (tuple, list))
         assert len(messages) > 0
         assert all(isinstance(message, Message.Implementation) for message in messages)
-
-        for d_message, d_candidate in product(messages, candidates):
-             self._logger.error("SENDING MESSAGE META: %s TO %s", d_message.meta, d_candidate)
 
         messages_send = False
         if len(candidates) and len(messages):
@@ -2320,7 +2316,6 @@ ORDER BY global_time""", (meta.database_id, member_database_id))
         def check_stop_status(return_values):
             failures = []
             self._logger.debug("Checking dispersy stop results")
-            self._logger.error("CHECK_STOP_STATUS %s %s", results.keys(), return_values)
             for name, result in zip(results.keys(), return_values):
                 if isinstance(result, Failure) or not result:
                     failures.append((name, result))
