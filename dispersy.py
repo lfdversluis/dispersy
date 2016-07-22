@@ -2246,6 +2246,8 @@ ORDER BY global_time""", (meta.database_id, member_database_id))
             returnValue(False)
 
     @blocking_call_on_reactor_thread
+    @inlineCallbacks
+    # TODO(Laurens): check callers
     def stop(self, timeout=10.0):
         """
         Stops Dispersy.
@@ -2272,12 +2274,13 @@ ORDER BY global_time""", (meta.database_id, member_database_id))
 
         self.cancel_all_pending_tasks()
 
+        @inlineCallbacks
         def unload_communities(communities):
             for community in communities:
                 if community.cid in self._communities:
                     self._logger.debug("Unloading %s (the reactor has %s delayed calls scheduled)",
                                        community, len(reactor.getDelayedCalls()))
-                    community.unload_community()
+                    yield community.unload_community()
                     self._logger.debug("Unloaded  %s (the reactor has %s delayed calls scheduled now)",
                                        community, len(reactor.getDelayedCalls()))
                 else:
@@ -2294,14 +2297,14 @@ ORDER BY global_time""", (meta.database_id, member_database_id))
         _runtime_statistics.clear()
 
         # unload communities that are not defined
-        unload_communities([community
+        yield unload_communities([community
                             for community
                             in self._communities.itervalues()
                             if not community.get_classification() in self._auto_load_communities])
 
         # unload communities in reverse auto load order
         for classification in reversed(self._auto_load_communities):
-            unload_communities([community
+            yield unload_communities([community
                                 for community
                                 in self._communities.itervalues()
                                 if community.get_classification() == classification])
@@ -2324,7 +2327,8 @@ ORDER BY global_time""", (meta.database_id, member_database_id))
                 return False
             return True
 
-        return gatherResults(results.values(), consumeErrors=True).addBoth(check_stop_status)
+        res = yield gatherResults(results.values(), consumeErrors=True).addBoth(check_stop_status)
+        returnValue(res)
 
     def _stats_detailed_candidates(self):
         """
