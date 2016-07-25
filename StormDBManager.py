@@ -366,6 +366,9 @@ class StormDBManager:
                 self._logger.debug("performing %d pending commits [%s]", pending_commits - 1, self.db_path)
                 self.commit()
             return True
+        elif isinstance(exc_value, IgnoreCommits):
+            self._logger.debug("enabling commit without committing now [%s]", self.db_path)
+            return True
         else:
             # Niels 23-01-2013, an exception happened from within the with database block
             # returning False to let Python reraise the exception.
@@ -378,3 +381,18 @@ class StormDBManager:
     def detach_commit_callback(self, func):
         assert func in self._commit_callbacks
         self._commit_callbacks.remove(func)
+
+class IgnoreCommits(Exception):
+
+    """
+    Ignore all commits made within the body of a 'with database:' clause.
+
+    with database:
+       # all commit statements are delayed until the database.__exit__
+       database.commit()
+       database.commit()
+       # raising IgnoreCommits causes all commits to be ignored
+       raise IgnoreCommits()
+    """
+    def __init__(self):
+        super(IgnoreCommits, self).__init__("Ignore all commits made within __enter__ and __exit__")
