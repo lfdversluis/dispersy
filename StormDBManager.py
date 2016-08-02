@@ -1,10 +1,18 @@
 import logging
+import os
+import tempfile
+from Queue import Queue
 
 from storm.database import create_database
 from storm.exceptions import OperationalError
-from twisted.internet.defer import DeferredLock, inlineCallbacks
+from twisted.internet import reactor
+from twisted.internet.defer import inlineCallbacks, returnValue, Deferred
+from twisted.internet.threads import deferToThread
 
-class StormDBManager:
+import thread
+
+
+class StormDBManager(object):
     """
     The StormDBManager is a manager that runs queries using the Storm Framework.
     These queries will be run on the Twisted thread-pool to ensure asynchronous, non-blocking behavior.
@@ -24,37 +32,47 @@ class StormDBManager:
         self._version = 0
         self._pending_commits = 0
         self._commit_callbacks = []
+        self._queue = Queue()
 
         # The transactor is required when you have methods decorated with the @transact decorator
         # This field name must NOT be changed.
         # self.transactor = Transactor(reactor.getThreadPool())
 
-        # Create a DeferredLock that should be used by callers to schedule their call.
-        self.db_lock = DeferredLock()
-
     @inlineCallbacks
-    def initialize(self):
+    def open(self):
         """
         Open/create the database and initialize the version.
         """
-        self._database = create_database(self.db_path)
-        self.connection = self._database.raw_connect()
-        self._cursor = self.connection.cursor()
+
+        # Start the worker and add an errback to it.
+        self.worker = deferToThread(self.start_worker)
+
+        def on_worker_failure(failure):
+            print failure
+            failure.raiseException()
+        self.worker.addErrback(on_worker_failure)
 
         self._version = 0
         yield self._retrieve_version()
+        returnValue(True)
 
     def close(self, commit=True):
-        assert self._cursor is not None, "Database.close() has been called or Database.open() has not been called"
-        assert self.connection is not None, "Database.close() has been called or Database.open() has not been called"
+        """
+        Closes the worker and returns the worker deferred. Once this fires, the worker has cleaned up.
+        :param commit: A boolean indicating if we should commit on close.
+        :return:
+        """
         if commit:
             self.commit(exiting=True)
+
+        self._queue.put(None)
         self._logger.debug("close database [%s]", self.db_path)
-        self._cursor.close()
-        self._cursor = None
-        self.connection.close()
-        self.connection = None
-        return True
+        return self.worker
+
+    def delete_tmp_database(self, _):
+        """
+        Deletes the temporary database if it was used.
+        """
 
     @property
     def version(self):
@@ -76,7 +94,7 @@ class StormDBManager:
 
     def schedule_query(self, callable, *args, **kwargs):
         """
-        Utility function to schedule a query to be executed using the db_lock.
+        Utility function to schedule a query to be executed using the queue.
 
         Args:
             callable: The database function that is to be executed.
@@ -86,9 +104,11 @@ class StormDBManager:
         Returns: A deferred that fires with the result of the query.
 
         """
-        return self.db_lock.run(callable, *args, **kwargs)
+        deferred = Deferred()
+        self._queue.put((callable, args, kwargs, deferred))
+        return deferred
 
-    def execute(self, query, arguments=(), get_lastrowid=False):
+    def execute(self, *args, **kwargs):
         """
         Executes a query on the twisted thread pool using the Storm framework.
 
@@ -101,22 +121,20 @@ class StormDBManager:
         else it returns with the last inserted row id.
 
         """
-
-        # @transact
         def _execute(self, query, arguments=(), get_lastrowid=False):
-            # connection = Connection(self._database)
             ret = None
             if get_lastrowid:
                 self._cursor.execute(query, arguments)
                 ret = self._cursor.lastrowid
             else:
                 self._cursor.execute(query, arguments)
-            # connection.close()
             return ret
 
-        return self.db_lock.run(_execute, self, query, arguments, get_lastrowid)
+        deferred = Deferred()
+        self._queue.put((_execute, args, kwargs, deferred))
+        return deferred
 
-    def executemany(self, query, list):
+    def executemany(self, *args, **kwargs):
         """
         Executes a query on the twisted thread pool using the Storm framework many times using the values provided by
         a list.
@@ -128,20 +146,14 @@ class StormDBManager:
         Returns: A deferred that fires once the execution is done, the result will be None.
 
         """
-        # def _execute(connection, query, arguments=()):
-        #     connection.execute(query, arguments, noresult=True)
-
-        # @transact
         def _executemany(self, query, list):
-            # connection = Connection(self._database)
             self._cursor.executemany(query, list)
-            # for item in list:
-            #     self._cursor.executemany(query, list)
-                # _execute(connection, query, item)
-            # connection.close()
-        return self.db_lock.run(_executemany, self, query, list)
 
-    def executescript(self, sql_statements):
+        deferred = Deferred()
+        self._queue.put((_executemany, args, kwargs, deferred))
+        return deferred
+
+    def executescript(self, *args, **kwargs):
         """
         Executes a script of several sql queries sequentially.
         Note that this function does exist in SQLite, but not in the Storm framework:
@@ -153,18 +165,15 @@ class StormDBManager:
         Returns: A deferred that fires with None once all statements have been executed.
 
         """
-        # def _execute(connection, query):
-        #     connection.execute(query, noresult=True)
-
-        # @transact
         def _executescript(self, sql_statements):
-            # connection = Connection(self._database)
             for sql_statement in sql_statements:
                 self.execute(sql_statement)
-            # connection.close()
-        return self.db_lock.run(_executescript, self, sql_statements)
 
-    def fetchone(self, query, arguments=()):
+        deferred = Deferred()
+        self._queue.put((_executescript, args, kwargs, deferred))
+        return deferred
+
+    def fetchone(self, *args, **kwargs):
         """
         Executes a query on the twisted thread pool using the Storm framework and returns the first result.
         The optional arguments should be provided when running a parametrized query. It has to be an iterable data
@@ -179,20 +188,17 @@ class StormDBManager:
         None instead of a StopIterationException.
 
         """
-        # @transact
         def _fetchone(self, query, arguments=()):
-            # connection = Connection(self._database)
-            # result = connection.execute(query, arguments).get_one()
-            # connection.close()
-            # return result
             try:
                 return self._cursor.execute(query, arguments).next()
             except (StopIteration, OperationalError):
                 return None
 
-        return self.db_lock.run(_fetchone, self, query, arguments)
+        deferred = Deferred()
+        self._queue.put((_fetchone, args, kwargs, deferred))
+        return deferred
 
-    def fetchall(self, query, arguments=()):
+    def fetchall(self, *args, **kwargs):
         """
         Executes a query on the twisted thread pool using the Storm framework and returns a list of tuples containing
         all matches through a deferred.
@@ -204,18 +210,14 @@ class StormDBManager:
         Returns: A deferred that fires with a list of tuple results that matches the query, possibly empty.
 
         """
-        # @transact
         def _fetchall(self, query, arguments=()):
-            # connection = Connection(self._database)
-            # res = connection.execute(query, arguments).get_all()
-            # connection.close()
-            # return res
             return self._cursor.execute(query, arguments).fetchall()
 
+        deferred = Deferred()
+        self._queue.put((_fetchall, args, kwargs, deferred))
+        return deferred
 
-        return self.db_lock.run(_fetchall, self, query, arguments)
-
-    def insert(self, table_name, **kwargs):
+    def insert(self, *args, **kwargs):
         """
         Inserts data provided as keyword arguments into the table provided as an argument.
 
@@ -226,13 +228,12 @@ class StormDBManager:
         Returns: A deferred that fires with None when the data has been inserted.
 
         """
-        # @transact
         def _insert(self, table_name, **kwargs):
-            # connection = Connection(self._database)
             self._insert(table_name, **kwargs)
-            # connection.close()
 
-        return self.db_lock.run(_insert, self, table_name, **kwargs)
+        deferred = Deferred()
+        self._queue.put((_insert, args, kwargs, deferred))
+        return deferred
 
     def _insert(self, table_name, **kwargs):
         """
@@ -259,7 +260,7 @@ class StormDBManager:
 
         self._cursor.execute(sql, kwargs.values())
 
-    def insert_many(self, table_name, arg_list):
+    def insert_many(self, *args, **kwargs):
         """
         Inserts many items into a table.
 
@@ -271,19 +272,16 @@ class StormDBManager:
         Returns: A deferred that fires with None once the bulk insertion is done.
 
         """
-        # @transact
         def _insert_many(self, table_name, arg_list):
             if len(arg_list) == 0:
                 return
-            # connection = Connection(self._database)
-            # for args in arg_list:
-            #     self._insert(connection, table_name, **args)
-            # connection.close()
 
             for args in arg_list:
                 self._insert(table_name, **args)
 
-        return self.db_lock.run(_insert_many, self, table_name, arg_list)
+        deferred = Deferred()
+        self._queue.put((_insert_many, args, kwargs, deferred))
+        return deferred
 
     def delete(self, table_name, **kwargs):
         """
@@ -319,14 +317,22 @@ class StormDBManager:
             table_name: The table name.
 
         Returns: A deferred that fires with the number of rows in the table.
-
         """
         sql = u"SELECT count(*) FROM %s LIMIT 1" % table_name
         return self.fetchone(sql)
 
     def commit(self, exiting=False):
-        assert self._cursor is not None, "Database.close() has been called or Database.open() has not been called"
+        """Schedules the call to commit the current transaction"""
+        deferred = Deferred()
+        self._queue.put(exiting)
+        return deferred
 
+    def _commit(self, exiting=False):
+        """
+        Commits the current transaction.
+        :param exiting: A boolean indicating if Dispersy is exiting.
+        :return: False if there are pending commits else the result of the commit.
+        """
         if self._pending_commits:
             self._logger.debug("defer commit [%s]", self.db_path)
             self._pending_commits += 1
@@ -381,6 +387,38 @@ class StormDBManager:
     def detach_commit_callback(self, func):
         assert func in self._commit_callbacks
         self._commit_callbacks.remove(func)
+
+    def start_worker(self):
+        # Storm has no :memory: database argument, it has to be sqlite:
+        if self.db_path == ":memory:":
+            self._database = create_database("sqlite:")
+        else:
+            self._database = create_database("sqlite:%s" % self.db_path)
+        self.connection = self._database.raw_connect()
+        self._cursor = self.connection.cursor()
+        while True:
+            item = self._queue.get()
+            if isinstance(item, bool):
+                self._commit(exiting=item)
+            elif item is None:
+                break
+            elif isinstance(item, tuple):
+                func, args, kwargs, deferred = item
+                res = func(self, *args, **kwargs)
+                # Make sure the reactor thread calls the callback, else chained functions will run on THIS thread.
+                reactor.callFromThread(deferred.callback, res)
+            else:
+                self._logger.error("Worker does not support %r" % item)
+
+        # We are closing the loop has been terminated
+        self._queue.empty()
+        self._queue = None
+        self._cursor.close()
+        self._cursor = None
+        self.connection.close()
+        self.connection = None
+        return True
+
 
 class IgnoreCommits(Exception):
 

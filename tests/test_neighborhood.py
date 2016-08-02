@@ -1,5 +1,3 @@
-from twisted.internet.task import deferLater
-
 from nose.twistedtools import deferred, reactor
 from twisted.internet.defer import inlineCallbacks
 
@@ -10,10 +8,20 @@ from .dispersytestclass import DispersyTestFunc
 class TestNeighborhood(DispersyTestFunc):
 
     @deferred(timeout=10)
+    @inlineCallbacks
+    def setUp(self):
+        yield super(TestNeighborhood, self).setUp()
+
+    @deferred(timeout=10)
+    @inlineCallbacks
+    def tearDown(self):
+        yield super(TestNeighborhood, self).tearDown()
+
+    @deferred(timeout=10)
     def test_forward_1(self):
         return self.forward(1)
 
-    @deferred(timeout=10)
+    @deferred(timeout=60)
     def test_forward_10(self):
         return self.forward(10)
 
@@ -72,13 +80,15 @@ class TestNeighborhood(DispersyTestFunc):
         self.assertEqual(meta.destination.node_count, 10)
 
         total_node_count = non_targeted_node_count + targeted_node_count
+        # By default the reactor has a maximum of 10 threads, with >= 10 nodes this means the tests will fil. So adjust.
+        reactor.suggestThreadPoolSize(total_node_count+1)
 
         # provide CENTRAL with a neighborhood
         nodes = yield self.create_nodes(total_node_count)
 
         # SELF creates a message
         candidates = tuple((node.my_candidate for node in nodes[:targeted_node_count]))
-        message = yield self._mm.create_targeted_full_sync_text("Hello World!", destination=candidates,  global_time=42)
+        message = yield self._mm.create_targeted_full_sync_text("Hello World!", destination=candidates, global_time=42)
         yield self._dispersy._forward([message])
 
         # check if sufficient NODES received the message (at least the first `target_count` ones)

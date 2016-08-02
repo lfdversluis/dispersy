@@ -52,7 +52,7 @@ class TestDatabase(TestCase):
 
         database = DispersyDatabase(tmp_path)
         yield database.open()
-        self.assertEqual(database.database_version, 21)
+        self.assertEqual(database.version, 21)
 
     @raises(RuntimeError)
     @deferred(timeout=10)

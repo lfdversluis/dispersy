@@ -30,6 +30,7 @@ class DispersyTestFunc(TestCase):
     def on_callback_exception(self, exception, is_fatal):
         return True
 
+    @inlineCallbacks
     def setUp(self):
         super(DispersyTestFunc, self).setUp()
 
@@ -38,16 +39,17 @@ class DispersyTestFunc(TestCase):
         self.assertFalse(reactor.getDelayedCalls())
         """" Central node that is also used for master member. """
         self._mm = None
-        self._mm, = self.create_nodes()
+        self._mm, = yield self.create_nodes()
 
         self._dispersy = self._mm._dispersy
         self._community = self._mm._community
 
+    @inlineCallbacks
     def tearDown(self):
         super(DispersyTestFunc, self).tearDown()
 
         for dispersy in self.dispersy_objects:
-            dispersy.stop()
+            yield dispersy.stop()
 
             peercache = os.path.join(dispersy._working_directory, PEERCACHE_FILENAME)
             if os.path.isfile(peercache):

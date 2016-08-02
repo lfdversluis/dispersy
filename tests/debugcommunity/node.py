@@ -347,11 +347,11 @@ class DebugNode(TaskManager):
     @inlineCallbacks
     def fetch_packets(self, message_names, mid=None):
         if mid:
-            packets = yield self._dispersy.database.stormdb.fetchall(u"SELECT packet FROM sync, member WHERE sync.member = member.id "
+            packets = yield self._dispersy.database.fetchall(u"SELECT packet FROM sync, member WHERE sync.member = member.id "
                                                                                     u"AND mid = ? AND meta_message IN (" + ", ".join("?" * len(message_names)) + ") ORDER BY global_time, packet",
                                                                                 [buffer(mid), ] + [self._community.get_meta_message(name).database_id for name in message_names])
             returnValue([str(packet) for packet, in packets])
-        packets = yield self._dispersy.database.stormdb.fetchall(u"SELECT packet FROM sync WHERE meta_message IN (" + ", ".join("?" * len(message_names)) + ") ORDER BY global_time, packet",
+        packets = yield self._dispersy.database.fetchall(u"SELECT packet FROM sync WHERE meta_message IN (" + ", ".join("?" * len(message_names)) + ") ORDER BY global_time, packet",
                                                                                 [self._community.get_meta_message(name).database_id for name in message_names])
         returnValue([str(packet) for packet, in packets])
 
@@ -369,7 +369,7 @@ class DebugNode(TaskManager):
     @blocking_call_on_reactor_thread
     @inlineCallbacks
     def count_messages(self, message):
-        packets_stored, = yield self._dispersy.database.stormdb.fetchone(
+        packets_stored, = yield self._dispersy.database.fetchone(
             u"""
               SELECT count(*)
               FROM sync, member, meta_message
@@ -386,7 +386,7 @@ class DebugNode(TaskManager):
 
         for message in messages:
             try:
-                undone, packet = yield self._dispersy.database.stormdb.fetchone(
+                undone, packet = yield self._dispersy.database.fetchone(
                     u"""
                       SELECT undone, packet
                       FROM sync, member
@@ -408,7 +408,7 @@ class DebugNode(TaskManager):
 
         for message in messages:
             try:
-                packet, = yield self._dispersy.database.stormdb.fetchone(
+                packet, = yield self._dispersy.database.fetchone(
                     u"""
                       SELECT packet
                       FROM sync, member
@@ -429,7 +429,7 @@ class DebugNode(TaskManager):
 
         for message in messages:
             try:
-                undone, = yield self._dispersy.database.stormdb.fetchone(
+                undone, = yield self._dispersy.database.fetchone(
                     u"""
                       SELECT undone
                       FROM sync, member
@@ -439,7 +439,7 @@ class DebugNode(TaskManager):
                      message.distribution.global_time))
                 self._testclass.assertGreater(undone, 0, "Message is not undone")
                 if undone_by:
-                    undone, = yield self._dispersy.database.stormdb.fetchone(
+                    undone, = yield self._dispersy.database.fetchone(
                         u"SELECT packet FROM sync WHERE id = ? ",
                         (undone,))
                     self._testclass.assertEqual(str(undone), undone_by.packet)

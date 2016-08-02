@@ -27,7 +27,7 @@ class TestClassification(DispersyTestFunc):
         master = yield self._dispersy.get_new_member(u"high")
 
         # create community
-        yield self._dispersy.database.stormdb.insert(u"community",
+        yield self._dispersy.database.insert(u"community",
                                                master=master.database_id,
                                                member=self._mm.my_member.database_id,
                                                classification=ClassTestA.get_classification())
@@ -37,7 +37,7 @@ class TestClassification(DispersyTestFunc):
         self.assertIsInstance(community, ClassTestB)
         self.assertEqual(community.cid, master.mid)
         try:
-            classification, = yield self._dispersy.database.stormdb.fetchone(
+            classification, = yield self._dispersy.database.fetchone(
                 u"SELECT classification FROM community WHERE master = ?", (master.database_id,))
         except TypeError:
             self.fail()
@@ -57,7 +57,7 @@ class TestClassification(DispersyTestFunc):
 
         # create community
         community_c = yield ClassTestC.create_community(self._dispersy, self._mm._my_member)
-        count, = yield self._dispersy.database.stormdb.fetchone(
+        count, = yield self._dispersy.database.fetchone(
             u"SELECT COUNT(*) FROM community WHERE classification = ?", (ClassTestC.get_classification(),))
         self.assertEqual(count, 1)
 
@@ -67,7 +67,7 @@ class TestClassification(DispersyTestFunc):
         self.assertEqual(community_c.cid, community_d.cid)
 
         try:
-            classification, = yield self._dispersy.database.stormdb.fetchone(
+            classification, = yield self._dispersy.database.fetchone(
                 u"SELECT classification FROM community WHERE master = ?", (community_c.master_member.database_id,))
         except TypeError:
             self.fail()
@@ -87,7 +87,7 @@ class TestClassification(DispersyTestFunc):
         master = yield self._dispersy.get_new_member(u"high")
 
         # create one community
-        yield self._dispersy.database.stormdb.insert(u"community",
+        yield self._dispersy.database.insert(u"community",
                                                master=master.database_id,
                                                member=self._mm.my_member.database_id,
                                                classification=ClassificationLoadOneCommunities.get_classification())

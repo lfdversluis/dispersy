@@ -11,10 +11,17 @@ from ..discovery.community import DiscoveryCommunity
 
 class TestDiscovery(DispersyTestFunc):
 
+    @deferred(timeout=10)
+    @inlineCallbacks
     def setUp(self):
         while _DEFAULT_ADDRESSES:
             _DEFAULT_ADDRESSES.pop()
-        super(TestDiscovery, self).setUp()
+        yield super(TestDiscovery, self).setUp()
+
+    @deferred(timeout=10)
+    @inlineCallbacks
+    def tearDown(self):
+        yield super(TestDiscovery, self).tearDown()
 
     @deferred(timeout=10)
     @inlineCallbacks

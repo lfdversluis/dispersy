@@ -10,7 +10,7 @@ from itertools import groupby
 
 from twisted.internet.defer import inlineCallbacks, returnValue
 
-from .database import Database
+from StormDBManager import StormDBManager
 from .distribution import FullSyncDistribution
 
 LATEST_VERSION = 21
@@ -71,9 +71,96 @@ schema = [
 ]
 
 
-class DispersyDatabase(Database):
+class DispersyDatabase(StormDBManager):
     if __debug__:
         __doc__ = schema
+
+    @inlineCallbacks
+    def open(self, initial_statements=True, prepare_visioning=True):
+        self._logger.debug("open database [%s]", self.db_path)
+        yield super(DispersyDatabase, self).open()
+        if initial_statements:
+            yield self._initial_statements()
+        if prepare_visioning:
+            yield self._prepare_version()
+        returnValue(True)
+
+    @inlineCallbacks
+    def _initial_statements(self):
+        # collect current database configuration
+        db_page_size = yield self.fetchone(u"PRAGMA page_size")
+        page_size = int(db_page_size[0])
+        db_journal_mode = yield self.fetchone(u"PRAGMA journal_mode")
+        journal_mode = unicode(db_journal_mode[0]).upper()
+        db_synchronous = yield self.fetchone(u"PRAGMA synchronous")
+        synchronous = unicode(db_synchronous[0]).upper()
+
+        #
+        # PRAGMA page_size = bytes;
+        # http://www.sqlite.org/pragma.html#pragma_page_size
+        # Note that changing page_size has no effect unless performed on a new database or followed
+        # directly by VACUUM.  Since we do not want the cost of VACUUM every time we load a
+        # database, existing databases must be upgraded.
+        #
+        if page_size < 8192:
+            self._logger.debug("PRAGMA page_size = 8192 (previously: %s) [%s]", page_size, self.db_path)
+
+            # it is not possible to change page_size when WAL is enabled
+            if journal_mode == u"WAL":
+                yield self.execute(u"PRAGMA journal_mode = DELETE")
+                journal_mode = u"DELETE"
+                yield self.execute(u"PRAGMA page_size = 8192")
+                yield self.execute(u"VACUUM")
+
+        else:
+            self._logger.debug("PRAGMA page_size = %s (no change) [%s]", page_size, self.db_path)
+
+        #
+        # PRAGMA journal_mode = DELETE | TRUNCATE | PERSIST | MEMORY | WAL | OFF
+        # http://www.sqlite.org/pragma.html#pragma_page_size
+        #
+        if not (journal_mode == u"WAL" or self.db_path == u":memory:"):
+            self._logger.debug("PRAGMA journal_mode = WAL (previously: %s) [%s]", journal_mode, self.db_path)
+            yield self.execute(u"PRAGMA locking_mode = EXCLUSIVE")
+            yield self.execute(u"PRAGMA journal_mode = WAL")
+
+        else:
+            self._logger.debug("PRAGMA journal_mode = %s (no change) [%s]", journal_mode, self.db_path)
+
+        #
+        # PRAGMA synchronous = 0 | OFF | 1 | NORMAL | 2 | FULL;
+        # http://www.sqlite.org/pragma.html#pragma_synchronous
+        #
+        if not synchronous in (u"NORMAL", u"1"):
+            self._logger.debug("PRAGMA synchronous = NORMAL (previously: %s) [%s]", synchronous, self.db_path)
+            yield self.execute(u"PRAGMA synchronous = NORMAL")
+
+        else:
+            self._logger.debug("PRAGMA synchronous = %s (no change) [%s]", synchronous, self.db_path)
+
+    @inlineCallbacks
+    def _prepare_version(self):
+        # check is the database contains an 'option' table
+        try:
+            count, = yield self.fetchone(
+                u"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'option'")
+        except TypeError:
+            raise RuntimeError()
+
+        if count:
+            # get version from required 'option' table
+            try:
+                version, = yield self.fetchone(
+                    u"SELECT value FROM option WHERE key == 'database_version' LIMIT 1")
+            except TypeError:
+                # the 'database_version' key was not found
+                version = u"0"
+        else:
+            # the 'option' table probably hasn't been created yet
+            version = u"0"
+
+        self._version = yield self.check_database(version)
+        assert isinstance(self._version, (int, long)), type(self._version)
 
     @inlineCallbacks
     def check_database(self, database_version):
@@ -84,7 +171,7 @@ class DispersyDatabase(Database):
 
         if database_version == 0:
             # setup new database with current database_version
-            yield self.stormdb.executescript(schema)
+            yield self.executescript(schema)
 
         else:
             # Check if the version is not higher than the latest version this Dispersy covers.
@@ -103,7 +190,7 @@ class DispersyDatabase(Database):
                 # Member instances.  unfortunately this requires the removal of the UNIQUE clause,
                 # however, the python code already guarantees that the public_key remains unique.
                 self._logger.info("upgrade database %d -> %d", database_version, 17)
-                yield self.stormdb.executescript([
+                yield self.executescript([
                     u"""-- move / remove old member table
                       DROP INDEX IF EXISTS member_mid_index;""",
 
@@ -132,7 +219,7 @@ class DispersyDatabase(Database):
             if database_version < 18:
                 # In version 18, we remove the tags column as we don't have blackisting anymore
                 self._logger.debug("upgrade database %d -> %d", database_version, 18)
-                yield self.stormdb.executescript([
+                yield self.executescript([
                     u"""-- move / remove old member table
                       DROP INDEX IF EXISTS member_mid_index;""",
 
@@ -166,7 +253,7 @@ class DispersyDatabase(Database):
                 # actually simplify the code.
                 self._logger.debug("upgrade database %d -> %d", database_version, 19)
 
-                yield self.stormdb.executescript([
+                yield self.executescript([
                     u"""-- move / remove old member table
                       DROP INDEX IF EXISTS member_mid_index;""",
 
@@ -202,17 +289,17 @@ class DispersyDatabase(Database):
                 # Let's store the sequence numbers in the database instead of quessing
                 self._logger.debug("upgrade database %d -> %d", database_version, 20)
 
-                yield self.stormdb.executescript([
+                yield self.executescript([
                     u"""DROP INDEX IF EXISTS sync_meta_message_undone_global_time_index;""",
 
                     u"""DROP INDEX IF EXISTS sync_meta_message_member;"""
                 ])
 
-                old_sync = yield self.stormdb.fetchall(u"""
+                old_sync = yield self.fetchall(u"""
                     SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'old_sync';""")
                 if old_sync:
                     # delete the sync table and start copying data again
-                    yield self.stormdb.executescript([
+                    yield self.executescript([
                         u"""DROP TABLE IF EXISTS sync;""",
 
                         u"""DROP INDEX IF EXISTS sync_meta_message_undone_global_time_index;""",
@@ -221,9 +308,9 @@ class DispersyDatabase(Database):
                     ])
                 else:
                     # rename sync to old_sync if it is the first time
-                    yield self.stormdb.execute(u"ALTER TABLE sync RENAME TO old_sync;")
+                    yield self.execute(u"ALTER TABLE sync RENAME TO old_sync;")
 
-                yield self.stormdb.executescript([
+                yield self.executescript([
                     u"""CREATE TABLE IF NOT EXISTS sync(
                       id INTEGER PRIMARY KEY AUTOINCREMENT,
                       community INTEGER REFERENCES community(id),
@@ -258,7 +345,7 @@ class DispersyDatabase(Database):
             if database_version < 21:
                 # remove 'cluster' column from meta_message table
                 self._logger.debug("upgrade database %d -> %d", database_version, 21)
-                yield self.stormdb.executescript([
+                yield self.executescript([
                     u"""CREATE TABLE meta_message_new(
                      id INTEGER PRIMARY KEY AUTOINCREMENT,
                      community INTEGER REFERENCES community(id),
@@ -334,7 +421,7 @@ class DispersyDatabase(Database):
             count = 0
             deletes = []
             for meta in metas:
-                i, = yield self.stormdb.fetchone(u"SELECT COUNT(*) FROM sync WHERE meta_message = ?", (meta.database_id,))
+                i, = yield self.fetchone(u"SELECT COUNT(*) FROM sync WHERE meta_message = ?", (meta.database_id,))
                 count += i
             self._logger.debug("checking %d sequence number enabled messages [%s]", count, community.cid.encode("HEX"))
             if count > 50:
@@ -345,7 +432,7 @@ class DispersyDatabase(Database):
 
             sequence_updates = []
             for meta in metas:
-                rows = yield self.stormdb.fetchall(u"SELECT id, member, packet FROM sync "
+                rows = yield self.fetchall(u"SELECT id, member, packet FROM sync "
                                          u"WHERE meta_message = ? ORDER BY member, global_time", (meta.database_id,))
                 groups = groupby(rows, key=lambda tup: tup[1])
                 for member_id, iterator in groups:
@@ -379,22 +466,22 @@ class DispersyDatabase(Database):
 
             self._logger.debug("will delete %d packets from the database", len(deletes))
             if deletes:
-                yield self.stormdb.executemany(u"DELETE FROM sync WHERE id = ?", deletes)
+                yield self.executemany(u"DELETE FROM sync WHERE id = ?", deletes)
 
             if sequence_updates:
-                yield self.stormdb.executemany(u"UPDATE sync SET sequence = ? WHERE id = ?", sequence_updates)
+                yield self.executemany(u"UPDATE sync SET sequence = ? WHERE id = ?", sequence_updates)
 
             # we may have removed some undo-other or undo-own messages.  we must ensure that there
             # are no messages in the database that point to these removed messages
-            updates = yield self.stormdb.fetchall(u"""
+            updates = yield self.fetchall(u"""
             SELECT a.id
             FROM sync a
             LEFT JOIN sync b ON a.undone = b.id
             WHERE a.community = ? AND a.undone > 0 AND b.id IS NULL""", (community.database_id,))
             if updates:
-                yield self.stormdb.executemany(u"UPDATE sync SET undone = 0 WHERE id = ?", updates)
+                yield self.executemany(u"UPDATE sync SET undone = 0 WHERE id = ?", updates)
 
-            yield self.stormdb.execute(u"UPDATE community SET database_version = 21 WHERE id = ?", (community.database_id,))
+            yield self.execute(u"UPDATE community SET database_version = 21 WHERE id = ?", (community.database_id,))
 
             for handler in progress_handlers:
                 handler.Destroy()

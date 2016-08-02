@@ -127,7 +127,7 @@ class TrackerCommunity(Community):
         write("# received dispersy-destroy-community from %s\n" % (str(message.candidate),))
 
         identity_id = self._meta_messages[u"dispersy-identity"].database_id
-        fetchone = self._dispersy.database.stormdb.fetchone
+        fetchone = self._dispersy.database.fetchone
         messages = [message]
         stored = set()
         while messages:

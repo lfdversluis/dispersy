@@ -23,11 +23,14 @@ class TestStormDBManager(TestCase):
         # http://stackoverflow.com/questions/3315046/sharing-a-memory-database-between-different-threads-in-python-using-sqlite3-pa
         if not os.path.exists(self.TEST_DATA_DIR):
             os.mkdir(self.TEST_DATA_DIR)
-        self.storm_db = StormDBManager("sqlite:%s" % self.SQLITE_TEST_DB)
-        blockingCallFromThread(reactor, self.storm_db.initialize)
+        self.storm_db = StormDBManager(self.SQLITE_TEST_DB)
+        blockingCallFromThread(reactor, self.storm_db.open)
 
+    @deferred(timeout=10)
+    @inlineCallbacks
     def tearDown(self):
         super(TestStormDBManager, self).tearDown()
+        yield self.storm_db.close()
         # Delete the database file if not using an in-memory database.
         if os.path.exists(self.SQLITE_TEST_DB):
             os.unlink(self.SQLITE_TEST_DB)
@@ -82,7 +85,7 @@ class TestStormDBManager(TestCase):
             return self.storm_db.fetchone(sql)
 
         def insert_into_db(_):
-            return self.storm_db.insert( "car", brand="BMW")
+            return self.storm_db.insert("car", brand="BMW")
 
         result_deferred = self.create_car_database()  # Create the car table
         result_deferred.addCallback(insert_into_db)  # Insert one value
@@ -110,7 +113,7 @@ class TestStormDBManager(TestCase):
             insert_values = []
             insert_values.append({"brand": "BMW"})
             insert_values.append({"brand": "Volvo"})
-            return self.storm_db.insert_many( "car", insert_values)
+            return self.storm_db.insert_many("car", insert_values)
 
         result_deferred = self.create_car_database()  # Create the car table
         result_deferred.addCallback(insert_into_db)  # Insert two value

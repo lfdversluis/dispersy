@@ -203,7 +203,7 @@ class DispersyStatistics(Statistics):
 
     @property
     def database_version(self):
-        return self._dispersy.database.stormdb.version
+        return self._dispersy.database.version
 
     @property
     def lan_address(self):

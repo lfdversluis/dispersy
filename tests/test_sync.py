@@ -355,7 +355,7 @@ class TestSync(DispersyTestFunc):
             # TODO(emilon): This could be done better.
             @inlineCallbacks
             def fetch_rows():
-                rows = yield nodeA._dispersy.database.stormdb.fetchall(
+                rows = yield nodeA._dispersy.database.fetchall(
                     u"SELECT sync.global_time, sync.member, double_signed_sync.member1, double_signed_sync.member2, "
                     u"member1.mid as mid1, member2.mid as mid2 FROM sync "
                     u"JOIN double_signed_sync ON double_signed_sync.sync = sync.id "

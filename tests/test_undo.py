@@ -156,7 +156,7 @@ class TestUndo(DispersyTestFunc):
 
         @inlineCallbacks
         def fetch_all_messages():
-            other_rows = yield other._dispersy.database.stormdb.fetchall(u"SELECT * FROM sync")
+            other_rows = yield other._dispersy.database.fetchall(u"SELECT * FROM sync")
             for row in other_rows:
                 self._logger.debug("_______ %s", row)
         yield other.call(fetch_all_messages)

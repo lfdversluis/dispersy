@@ -13,6 +13,16 @@ class TestBatch(DispersyTestFunc):
         super(TestBatch, self).__init__(*args, **kargs)
         self._big_batch_took = 0.0
         self._small_batches_took = 0.0
+    
+    @deferred(timeout=10)
+    @inlineCallbacks
+    def setUp(self):
+        yield super(TestBatch, self).setUp()
+
+    @deferred(timeout=10)
+    @inlineCallbacks
+    def tearDown(self):
+        yield super(TestBatch, self).tearDown()
 
     @deferred(timeout=10)
     @inlineCallbacks
@@ -92,7 +102,6 @@ class TestBatch(DispersyTestFunc):
         we make one large batch (using one community) and many small batches (using many different
         communities).
         """
-
         node, other = yield self.create_nodes(2)
         yield other.send_identity(node)
 
