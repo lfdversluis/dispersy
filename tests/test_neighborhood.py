@@ -37,19 +37,19 @@ class TestNeighborhood(DispersyTestFunc):
     def test_forward_20(self):
         return self.forward(20)
 
-    @deferred(timeout=10)
+    @deferred(timeout=20)
     def test_forward_0_targeted_5(self):
         return self.forward(0, 5)
 
-    @deferred(timeout=10)
+    @deferred(timeout=20)
     def test_forward_0_targeted_20(self):
         return self.forward(0, 20)
 
-    @deferred(timeout=10)
+    @deferred(timeout=20)
     def test_forward_5_targeted_2(self):
         return self.forward(5, 2)
 
-    @deferred(timeout=10)
+    @deferred(timeout=20)
     def test_forward_2_targeted_5(self):
         return self.forward(2, 5)
 
