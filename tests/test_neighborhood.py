@@ -11,6 +11,8 @@ class TestNeighborhood(DispersyTestFunc):
     @inlineCallbacks
     def setUp(self):
         yield super(TestNeighborhood, self).setUp()
+        # By default the reactor has a maximum of 10 threads, with >= 10 nodes this means the tests will fil. So adjust.
+        reactor.suggestThreadPoolSize(30)
 
     @deferred(timeout=10)
     @inlineCallbacks
@@ -80,8 +82,6 @@ class TestNeighborhood(DispersyTestFunc):
         self.assertEqual(meta.destination.node_count, 10)
 
         total_node_count = non_targeted_node_count + targeted_node_count
-        # By default the reactor has a maximum of 10 threads, with >= 10 nodes this means the tests will fil. So adjust.
-        reactor.suggestThreadPoolSize(total_node_count+1)
 
         # provide CENTRAL with a neighborhood
         nodes = yield self.create_nodes(total_node_count)

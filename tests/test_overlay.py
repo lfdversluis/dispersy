@@ -6,6 +6,8 @@ from unittest import skipUnless
 
 from twisted.internet.defer import inlineCallbacks
 
+from nose.twistedtools import deferred
+
 from .debugcommunity.community import DebugCommunity
 from .debugcommunity.conversion import DebugCommunityConversion
 from .dispersytestclass import DispersyTestFunc
@@ -19,10 +21,17 @@ summary_logger = logging.getLogger("test-overlay-summary")
 
 class TestOverlay(DispersyTestFunc):
 
+    @deferred(timeout=10)
+    @inlineCallbacks
     def setUp(self):
-        super(DispersyTestFunc, self).setUp()
+        yield super(DispersyTestFunc, self).setUp()
 
         self.dispersy_objects = []
+
+    @deferred(timeout=10)
+    @inlineCallbacks
+    def tearDown(self):
+        yield super(TestOverlay, self).tearDown()
 
     @skipUnless(environ.get("TEST_OVERLAY_ALL_CHANNEL") == "yes", "This 'unittest' tests the health of a live overlay, as such, this is not part of the code review process")
     def test_all_channel_community(self):

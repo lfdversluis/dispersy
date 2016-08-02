@@ -8,9 +8,16 @@ from .dispersytestclass import DispersyTestFunc
 
 class TestIncomingMissingSequence(DispersyTestFunc):
 
+    @deferred(timeout=10)
+    @inlineCallbacks
     def setUp(self):
-        super(TestIncomingMissingSequence, self).setUp()
+        yield super(TestIncomingMissingSequence, self).setUp()
         self.nodes = []
+
+    @deferred(timeout=10)
+    @inlineCallbacks
+    def tearDown(self):
+        yield super(TestIncomingMissingSequence, self).tearDown()
 
     @deferred(timeout=10)
     @inlineCallbacks
@@ -284,7 +291,7 @@ class TestIncomingMissingSequence(DispersyTestFunc):
         self.patch_send_packet_for_nodes()
 
         for node in nodes:
-            other.send_identity(node)
+            yield other.send_identity(node)
 
         messages = []
         for i in xrange(1, 11):
@@ -317,6 +324,16 @@ class TestIncomingMissingSequence(DispersyTestFunc):
 
 
 class TestOutgoingMissingSequence(DispersyTestFunc):
+
+    @deferred(timeout=10)
+    @inlineCallbacks
+    def setUp(self):
+        yield super(TestOutgoingMissingSequence, self).setUp()
+
+    @deferred(timeout=10)
+    @inlineCallbacks
+    def tearDown(self):
+        yield super(TestOutgoingMissingSequence, self).tearDown()
 
     @deferred(timeout=15)
     @inlineCallbacks

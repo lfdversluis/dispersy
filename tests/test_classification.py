@@ -13,6 +13,16 @@ class TestClassification(DispersyTestFunc):
 
     @deferred(timeout=10)
     @inlineCallbacks
+    def setUp(self):
+        yield super(TestClassification, self).setUp()
+
+    @deferred(timeout=10)
+    @inlineCallbacks
+    def tearDown(self):
+        yield super(TestClassification, self).tearDown()
+
+    @deferred(timeout=10)
+    @inlineCallbacks
     def test_reclassify_unloaded_community(self):
         """
         Load a community, reclassify it, load all communities of that classification to check.

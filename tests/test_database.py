@@ -14,8 +14,10 @@ class TestDatabase(TestCase):
     TEST_DATA_DIR = os.path.abspath(os.path.join(FILE_DIR, u"data"))
     TMP_DATA_DIR = os.path.abspath(os.path.join(FILE_DIR, u"tmp"))
 
+    @deferred(timeout=10)
+    @inlineCallbacks
     def setUp(self):
-        super(TestDatabase, self).setUp()
+        yield super(TestDatabase, self).setUp()
 
         # Do not use an in-memory database. Different connections to the same
         # in-memory database do not point towards the same database.
@@ -26,8 +28,10 @@ class TestDatabase(TestCase):
         if not os.path.exists(self.TMP_DATA_DIR):
             os.mkdir(self.TMP_DATA_DIR)
 
+    @deferred(timeout=10)
+    @inlineCallbacks
     def tearDown(self):
-        super(TestDatabase, self).tearDown()
+        yield super(TestDatabase, self).tearDown()
         # Delete the database file if not using an in-memory database.
         if os.path.exists(self.TMP_DATA_DIR):
             shutil.rmtree(self.TMP_DATA_DIR, ignore_errors=True)

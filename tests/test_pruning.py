@@ -9,9 +9,16 @@ from twisted.internet.defer import inlineCallbacks, returnValue
 
 class TestPruning(DispersyTestFunc):
 
+    @deferred(timeout=10)
+    @inlineCallbacks
     def setUp(self):
-        super(TestPruning, self).setUp()
+        yield super(TestPruning, self).setUp()
         self.nodes = []
+
+    @deferred(timeout=10)
+    @inlineCallbacks
+    def tearDown(self):
+        yield super(TestPruning, self).tearDown()
 
     @inlineCallbacks
     def _create_prune(self, node, globaltime_start, globaltime_end, store=True):

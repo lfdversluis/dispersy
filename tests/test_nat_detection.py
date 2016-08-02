@@ -14,6 +14,17 @@ class TestNATDetection(DispersyTestFunc):
     These unit tests should cover all methods which are related to detecting the NAT type of a peer.
     """
 
+    @deferred(timeout=10)
+    @inlineCallbacks
+    def setUp(self):
+        yield super(TestNATDetection, self).setUp()
+
+    @deferred(timeout=10)
+    @inlineCallbacks
+    def tearDown(self):
+        yield super(TestNATDetection, self).tearDown()
+
+
     def _emulate_connection_type__unknown(self, community):
         self._logger.debug("Emulating connection type: UNKNOWN")
         address = ("140.0.0.2", 1)

@@ -7,6 +7,16 @@ from .dispersytestclass import DispersyTestFunc
 class TestWalker(DispersyTestFunc):
 
     @deferred(timeout=10)
+    @inlineCallbacks
+    def setUp(self):
+        yield super(TestWalker, self).setUp()
+
+    @deferred(timeout=10)
+    @inlineCallbacks
+    def tearDown(self):
+        yield super(TestWalker, self).tearDown()
+
+    @deferred(timeout=10)
     def test_one_walker(self): return self.check_walker([""])
 
     @deferred(timeout=10)

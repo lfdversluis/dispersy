@@ -1,12 +1,22 @@
-from nose.twistedtools import deferred, reactor
 from twisted.internet.defer import inlineCallbacks
-from twisted.internet.task import deferLater
 
-from ..resolution import PublicResolution, LinearResolution
+from nose.twistedtools import deferred
+
 from .dispersytestclass import DispersyTestFunc
+from ..resolution import PublicResolution, LinearResolution
 
 
 class TestDynamicSettings(DispersyTestFunc):
+
+    @deferred(timeout=10)
+    @inlineCallbacks
+    def setUp(self):
+        yield super(TestDynamicSettings, self).setUp()
+
+    @deferred(timeout=10)
+    @inlineCallbacks
+    def tearDown(self):
+        yield super(TestDynamicSettings, self).tearDown()
 
     @deferred(timeout=10)
     @inlineCallbacks

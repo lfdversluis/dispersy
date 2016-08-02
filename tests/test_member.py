@@ -9,6 +9,17 @@ class TestMember(DispersyTestFunc):
 
     @deferred(timeout=10)
     @inlineCallbacks
+    def setUp(self):
+        yield super(TestMember, self).setUp()
+        self.nodes = []
+
+    @deferred(timeout=10)
+    @inlineCallbacks
+    def tearDown(self):
+        yield super(TestMember, self).tearDown()
+
+    @deferred(timeout=10)
+    @inlineCallbacks
     def test_verify(self):
         yield self._test_verify(u"medium")
         yield self._test_verify(u"curve25519")

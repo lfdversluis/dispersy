@@ -1,26 +1,24 @@
+import logging
 import unittest
 from collections import defaultdict
 from copy import copy
-from os import environ, getcwd, path
+from os import environ, path
 from socket import getfqdn
 from subprocess import Popen, PIPE, STDOUT
 from threading import Thread
 from time import time, sleep
+from twisted.internet.defer import Deferred, inlineCallbacks, returnValue
 from unittest import skip, skipUnless
-import logging
 
 from nose.twistedtools import reactor, deferred
-from twisted.internet.defer import Deferred, inlineCallbacks, returnValue
-from twisted.internet.task import deferLater
 
+from .debugcommunity.community import DebugCommunity
+from .dispersytestclass import DispersyTestFunc
 from ..candidate import Candidate
 from ..dispersy import Dispersy
 from ..endpoint import StandaloneEndpoint
 from ..message import Message, DropMessage
 from ..util import blockingCallFromThread
-from .debugcommunity.community import DebugCommunity
-from .dispersytestclass import DispersyTestFunc
-
 
 summary_logger = logging.getLogger("test-bootstrap-summary")
 

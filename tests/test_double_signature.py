@@ -9,6 +9,16 @@ class TestDoubleSign(DispersyTestFunc):
 
     @deferred(timeout=10)
     @inlineCallbacks
+    def setUp(self):
+        yield super(TestDoubleSign, self).setUp()
+
+    @deferred(timeout=10)
+    @inlineCallbacks
+    def tearDown(self):
+        yield super(TestDoubleSign, self).tearDown()
+
+    @deferred(timeout=10)
+    @inlineCallbacks
     def test_no_response_from_node(self):
         """
         OTHER will request a signature from NODE. NODE will ignore this request and SELF should get

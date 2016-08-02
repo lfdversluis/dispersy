@@ -6,9 +6,16 @@ from .dispersytestclass import DispersyTestFunc
 
 class TestUndo(DispersyTestFunc):
 
+    @deferred(timeout=10)
+    @inlineCallbacks
     def setUp(self):
-        super(TestUndo, self).setUp()
+        yield super(TestUndo, self).setUp()
         self.nodes = []
+
+    @deferred(timeout=10)
+    @inlineCallbacks
+    def tearDown(self):
+        yield super(TestUndo, self).tearDown()
 
     @deferred(timeout=10)
     @inlineCallbacks

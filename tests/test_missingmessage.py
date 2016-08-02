@@ -8,9 +8,16 @@ from .dispersytestclass import DispersyTestFunc
 
 class TestMissingMessage(DispersyTestFunc):
 
+    @deferred(timeout=10)
+    @inlineCallbacks
     def setUp(self):
-        super(TestMissingMessage, self).setUp()
+        yield super(TestMissingMessage, self).setUp()
         self.nodes = []
+
+    @deferred(timeout=10)
+    @inlineCallbacks
+    def tearDown(self):
+        yield super(TestMissingMessage, self).tearDown()
 
     @inlineCallbacks
     def _test_with_order(self, batchFUNC):

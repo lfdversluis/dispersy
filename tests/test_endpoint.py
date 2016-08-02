@@ -1,4 +1,7 @@
 from tempfile import mkdtemp
+from twisted.internet.defer import inlineCallbacks
+
+from nose.twistedtools import deferred
 
 from ..dispersy import Dispersy
 from ..candidate import Candidate
@@ -6,14 +9,21 @@ from ..endpoint import NullEndpoint
 from ..tests.dispersytestclass import DispersyTestFunc
 
 
-class TestSync(DispersyTestFunc):
+class TestEndpoint(DispersyTestFunc):
     """
     This class contains tests that test the various endpoints
     """
 
+    @deferred(timeout=10)
+    @inlineCallbacks
     def setUp(self):
-        super(TestSync, self).setUp()
+        yield super(TestEndpoint, self).setUp()
         self.nodes = []
+
+    @deferred(timeout=10)
+    @inlineCallbacks
+    def tearDown(self):
+        yield super(TestEndpoint, self).tearDown()
 
     def test_null_endpoint_address(self):
         """
@@ -31,6 +41,8 @@ class TestSync(DispersyTestFunc):
 
         self.assertEqual(null_endpoint.get_address(), ("127.0.0.1", 1337))
 
+    @deferred(timeout=10)
+    @inlineCallbacks
     def test_null_endpoint_listen_to(self):
         """
         Tests that null endpoint listen_to does absolutely nothing
@@ -40,12 +52,14 @@ class TestSync(DispersyTestFunc):
         working_directory = unicode(mkdtemp(suffix="_dispersy_test_session"))
 
         dispersy = Dispersy(null_endpoint, working_directory, **memory_database_argument)
-        dispersy.initialize_statistics()
+        yield dispersy.initialize_statistics()
         null_endpoint.open(dispersy)
         null_endpoint.listen_to(None, None)
 
         self.assertEqual(dispersy.statistics.total_up, 0)
 
+    @deferred(timeout=10)
+    @inlineCallbacks
     def test_null_endpoint_send_packet(self):
         """
         Test that send packet raises the dispersy statistic' s total_up
@@ -55,7 +69,7 @@ class TestSync(DispersyTestFunc):
         working_directory = unicode(mkdtemp(suffix="_dispersy_test_session"))
 
         dispersy = Dispersy(null_endpoint, working_directory, **memory_database_argument)
-        dispersy.initialize_statistics()
+        yield dispersy.initialize_statistics()
         null_endpoint.open(dispersy)
 
         packet = "Fake packet"

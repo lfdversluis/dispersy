@@ -1,11 +1,21 @@
-from nose.twistedtools import deferred, reactor
 from twisted.internet.defer import inlineCallbacks
-from twisted.internet.task import deferLater
+
+from nose.twistedtools import deferred
 
 from .dispersytestclass import DispersyTestFunc
 
 
 class TestDestroyCommunity(DispersyTestFunc):
+
+    @deferred(timeout=10)
+    @inlineCallbacks
+    def setUp(self):
+        yield super(TestDestroyCommunity, self).setUp()
+
+    @deferred(timeout=10)
+    @inlineCallbacks
+    def tearDown(self):
+        yield super(TestDestroyCommunity, self).tearDown()
 
     @deferred(timeout=15)
     @inlineCallbacks

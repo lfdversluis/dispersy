@@ -6,9 +6,16 @@ from twisted.internet.defer import inlineCallbacks, returnValue
 
 class TestSync(DispersyTestFunc):
 
+    @deferred(timeout=10)
+    @inlineCallbacks
     def setUp(self):
-        super(TestSync, self).setUp()
+        yield super(TestSync, self).setUp()
         self.nodes = []
+
+    @deferred(timeout=10)
+    @inlineCallbacks
+    def tearDown(self):
+        yield super(TestSync, self).tearDown()
 
     @inlineCallbacks
     def _create_nodes_messages(self, messagetype="create_full_sync_text"):

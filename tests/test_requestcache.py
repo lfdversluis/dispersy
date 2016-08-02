@@ -1,3 +1,7 @@
+from twisted.internet.defer import inlineCallbacks
+
+from nose.twistedtools import deferred
+
 from .dispersytestclass import DispersyTestFunc
 
 from ..requestcache import RequestCache, NumberCache, RandomNumberCache
@@ -5,6 +9,16 @@ from ..util import blocking_call_on_reactor_thread
 
 
 class TestRequestCache(DispersyTestFunc):
+
+    @deferred(timeout=10)
+    @inlineCallbacks
+    def setUp(self):
+        yield super(TestRequestCache, self).setUp()
+
+    @deferred(timeout=10)
+    @inlineCallbacks
+    def tearDown(self):
+        yield super(TestRequestCache, self).tearDown()
 
     @blocking_call_on_reactor_thread
     def test_single_cache(self):

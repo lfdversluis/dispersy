@@ -65,6 +65,16 @@ class NoBootstrapDebugCommunity(DebugCommunity):
 
 class TestCandidates(DispersyTestFunc):
 
+    @deferred(timeout=10)
+    @inlineCallbacks
+    def setUp(self):
+        yield super(TestCandidates, self).setUp()
+
+    @deferred(timeout=10)
+    @inlineCallbacks
+    def tearDown(self):
+        yield super(TestCandidates, self).tearDown()
+
     """
     Tests candidate interface.
 

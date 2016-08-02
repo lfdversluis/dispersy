@@ -15,8 +15,10 @@ class TestStormDBManager(TestCase):
     TEST_DATA_DIR = os.path.abspath(os.path.join(FILE_DIR, u"data"))
     SQLITE_TEST_DB = os.path.abspath(os.path.join(TEST_DATA_DIR, u"test.db"))
 
+    @deferred(timeout=10)
+    @inlineCallbacks
     def setUp(self):
-        super(TestStormDBManager, self).setUp()
+        yield super(TestStormDBManager, self).setUp()
 
         # Do not use an in-memory database. Different connections to the same
         # in-memory database do not point towards the same database.
@@ -24,7 +26,7 @@ class TestStormDBManager(TestCase):
         if not os.path.exists(self.TEST_DATA_DIR):
             os.mkdir(self.TEST_DATA_DIR)
         self.storm_db = StormDBManager(self.SQLITE_TEST_DB)
-        blockingCallFromThread(reactor, self.storm_db.open)
+        yield self.storm_db.open()
 
     @deferred(timeout=10)
     @inlineCallbacks

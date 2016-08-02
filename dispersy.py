@@ -2247,7 +2247,6 @@ ORDER BY global_time""", (meta.database_id, member_database_id))
 
     @blocking_call_on_reactor_thread
     @inlineCallbacks
-    # TODO(Laurens): check callers
     def stop(self, timeout=10.0):
         """
         Stops Dispersy.
