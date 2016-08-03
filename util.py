@@ -179,14 +179,29 @@ class deprecated(object):
             return func(*args, **kwargs)
         return wrapper_func
 
+def measure_db_stats(func):
+    @inlineCallbacks
+    def helper(*args, **kargs):
+        start = time()
+        res = yield func(*args, **kargs)
+        end = time() - start
+        print find_caller(range=3)
+        returnValue(res)
+
+    return helper
 
 #
 # General Instrumentation stuff
 #
 
-def find_caller():
+def find_caller(range=2):
+    """
+    Get's the caller of a function
+    :param range: From which frame on we should search.
+    :return: A tuple (function name, line in code) or none
+    """
     stack = inspect.stack()
-    for i in range(2, len(stack)):  # 0 is this frame, and 1 is the caller, so use 2 to get the caller of the caller.
+    for i in range(range, len(stack)):
         if (any(x in stack[i][1] for x in ["tribler", "dispersy", "laurens"])):
             return (stack[i][3], stack[i][2])
 

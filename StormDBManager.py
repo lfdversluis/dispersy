@@ -1,6 +1,4 @@
 import logging
-import os
-import tempfile
 from Queue import Queue
 
 from storm.database import create_database
@@ -9,9 +7,7 @@ from twisted.internet import reactor
 from twisted.internet.defer import inlineCallbacks, returnValue, Deferred
 from twisted.internet.threads import deferToThread
 
-import thread
-
-from util import find_caller
+from util import find_caller, measure_db_stats
 
 
 class StormDBManager(object):
@@ -110,6 +106,7 @@ class StormDBManager(object):
         self._queue.put((callable, args, kwargs, deferred))
         return deferred
 
+    @measure_db_stats
     def execute(self, *args, **kwargs):
         """
         Executes a query on the twisted thread pool using the Storm framework.
@@ -123,9 +120,6 @@ class StormDBManager(object):
         else it returns with the last inserted row id.
 
         """
-
-        caller = find_caller()
-        print "CALLER: ", caller
 
         def _execute(self, query, arguments=(), get_lastrowid=False):
             ret = None
@@ -152,9 +146,9 @@ class StormDBManager(object):
         Returns: A deferred that fires once the execution is done, the result will be None.
 
         """
-
-        caller = find_caller()
-        print "CALLER: ", caller
+        #
+        # caller = find_caller()
+        # print "CALLER: ", caller
 
         def _executemany(self, query, list):
             self._cursor.executemany(query, list)
@@ -176,8 +170,8 @@ class StormDBManager(object):
 
         """
 
-        caller = find_caller()
-        print "CALLER: ", caller
+        # caller = find_caller()
+        # print "CALLER: ", caller
 
         def _executescript(self, sql_statements):
             for sql_statement in sql_statements:
@@ -203,8 +197,8 @@ class StormDBManager(object):
 
         """
 
-        caller = find_caller()
-        print "CALLER: ", caller
+        # caller = find_caller()
+        # print "CALLER: ", caller
 
         def _fetchone(self, query, arguments=()):
             try:
