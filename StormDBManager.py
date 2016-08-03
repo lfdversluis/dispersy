@@ -223,8 +223,8 @@ class StormDBManager(object):
 
         """
 
-        caller = find_caller()
-        print "CALLER: ", caller
+        # caller = find_caller()
+        # print "CALLER: ", caller
 
         def _fetchall(self, query, arguments=()):
             return self._cursor.execute(query, arguments).fetchall()
@@ -245,8 +245,8 @@ class StormDBManager(object):
 
         """
 
-        caller = find_caller()
-        print "CALLER: ", caller
+        # caller = find_caller()
+        # print "CALLER: ", caller
 
         def _insert(self, table_name, **kwargs):
             self._insert(table_name, **kwargs)
@@ -271,8 +271,8 @@ class StormDBManager(object):
 
         """
 
-        caller = find_caller()
-        print "CALLER: ", caller
+        # caller = find_caller()
+        # print "CALLER: ", caller
 
         if len(kwargs) == 0:
             raise ValueError("No keyword arguments supplied.")
@@ -297,8 +297,8 @@ class StormDBManager(object):
 
         """
 
-        caller = find_caller()
-        print "CALLER: ", caller
+        # caller = find_caller()
+        # print "CALLER: ", caller
 
 
         def _insert_many(self, table_name, arg_list):
@@ -327,8 +327,8 @@ class StormDBManager(object):
 
         """
 
-        caller = find_caller()
-        print "CALLER: ", caller
+        # caller = find_caller()
+        # print "CALLER: ", caller
 
         sql = u'DELETE FROM %s WHERE ' % table_name
         arg = []
@@ -352,16 +352,16 @@ class StormDBManager(object):
         Returns: A deferred that fires with the number of rows in the table.
         """
 
-        caller = find_caller()
-        print "CALLER: ", caller
+        # caller = find_caller()
+        # print "CALLER: ", caller
 
         sql = u"SELECT count(*) FROM %s LIMIT 1" % table_name
         return self.fetchone(sql)
 
     def commit(self, exiting=False):
 
-        caller = find_caller()
-        print "CALLER: ", caller
+        # caller = find_caller()
+        # print "CALLER: ", caller
 
         """Schedules the call to commit the current transaction"""
         deferred = Deferred()
