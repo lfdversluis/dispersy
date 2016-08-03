@@ -7,7 +7,7 @@ from twisted.internet import reactor
 from twisted.internet.defer import inlineCallbacks, returnValue, Deferred
 from twisted.internet.threads import deferToThread
 
-from util import find_caller, measure_db_stats
+from util import measure_db_stats
 
 
 class StormDBManager(object):

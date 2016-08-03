@@ -180,12 +180,13 @@ class deprecated(object):
         return wrapper_func
 
 def measure_db_stats(func):
+    caller = find_caller(3)
     @inlineCallbacks
     def helper(*args, **kargs):
         start = time()
         res = yield func(*args, **kargs)
         end = time() - start
-        print find_caller(3)
+        print "%s took %s" % (caller, end)
         returnValue(res)
 
     return helper
