@@ -185,7 +185,7 @@ def measure_db_stats(func):
         start = time()
         res = yield func(*args, **kargs)
         end = time() - start
-        print find_caller(range=3)
+        print find_caller(3)
         returnValue(res)
 
     return helper
