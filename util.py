@@ -194,14 +194,14 @@ def measure_db_stats(func):
 # General Instrumentation stuff
 #
 
-def find_caller(range=2):
+def find_caller(start=2):
     """
     Get's the caller of a function
     :param range: From which frame on we should search.
     :return: A tuple (function name, line in code) or none
     """
     stack = inspect.stack()
-    for i in range(range, len(stack)):
+    for i in range(start, len(stack)):
         if (any(x in stack[i][1] for x in ["tribler", "dispersy", "laurens"])):
             return (stack[i][3], stack[i][2])
 
