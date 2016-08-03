@@ -1,5 +1,6 @@
 import Queue
 import functools
+import inspect
 import logging
 import sys
 import traceback
@@ -182,6 +183,12 @@ class deprecated(object):
 #
 # General Instrumentation stuff
 #
+
+def find_caller():
+    stack = inspect.stack()
+    for i in range(2, len(stack)):  # 0 is this frame, and 1 is the caller, so use 2 to get the caller of the caller.
+        if (any(x in stack[i][1] for x in ["tribler", "dispersy", "laurens"])):
+            return (stack[i][3], stack[i][2])
 
 def init_instrumentation():
     """
