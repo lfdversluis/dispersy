@@ -1,13 +1,15 @@
+import inspect
 import logging
 from Queue import Queue
 
 from storm.database import create_database
 from storm.exceptions import OperationalError
+from time import time
 from twisted.internet import reactor
 from twisted.internet.defer import inlineCallbacks, returnValue, Deferred
 from twisted.internet.threads import deferToThread
 
-from util import measure_db_stats
+from util import find_caller
 
 
 class StormDBManager(object):
@@ -31,10 +33,27 @@ class StormDBManager(object):
         self._pending_commits = 0
         self._commit_callbacks = []
         self._queue = Queue()
+        self.measure_calls = True
 
         # The transactor is required when you have methods decorated with the @transact decorator
         # This field name must NOT be changed.
         # self.transactor = Transactor(reactor.getThreadPool())
+
+    @inlineCallbacks
+    def measure_and_write(self, db_operation, caller, sql_deferred):
+        start = time()
+        res = yield sql_deferred
+        end = time()
+        duration = end - start
+
+        if caller is not None:
+            with open("db_calls.txt", "a") as myfile:
+                myfile.write("%s %s %s %s %s %s\n" % (end, db_operation, caller[0], caller[1], caller[2], duration))
+
+        returnValue(res)
+
+    def log_call(self, deferred):
+        return self.measure_and_write(inspect.stack()[1][3], find_caller(3), deferred)
 
     @inlineCallbacks
     def open(self):
@@ -106,7 +125,6 @@ class StormDBManager(object):
         self._queue.put((callable, args, kwargs, deferred))
         return deferred
 
-    @measure_db_stats
     def execute(self, *args, **kwargs):
         """
         Executes a query on the twisted thread pool using the Storm framework.
@@ -132,6 +150,8 @@ class StormDBManager(object):
 
         deferred = Deferred()
         self._queue.put((_execute, args, kwargs, deferred))
+        if self.measure_calls:
+            return self.log_call(deferred)
         return deferred
 
     def executemany(self, *args, **kwargs):
@@ -155,6 +175,8 @@ class StormDBManager(object):
 
         deferred = Deferred()
         self._queue.put((_executemany, args, kwargs, deferred))
+        if self.measure_calls:
+            return self.log_call(deferred)
         return deferred
 
     def executescript(self, *args, **kwargs):
@@ -179,6 +201,8 @@ class StormDBManager(object):
 
         deferred = Deferred()
         self._queue.put((_executescript, args, kwargs, deferred))
+        if self.measure_calls:
+            return self.log_call(deferred)
         return deferred
 
     def fetchone(self, *args, **kwargs):
@@ -208,6 +232,8 @@ class StormDBManager(object):
 
         deferred = Deferred()
         self._queue.put((_fetchone, args, kwargs, deferred))
+        if self.measure_calls:
+            return self.log_call(deferred)
         return deferred
 
     def fetchall(self, *args, **kwargs):
@@ -231,6 +257,8 @@ class StormDBManager(object):
 
         deferred = Deferred()
         self._queue.put((_fetchall, args, kwargs, deferred))
+        if self.measure_calls:
+            return self.log_call(deferred)
         return deferred
 
     def insert(self, *args, **kwargs):
@@ -253,6 +281,8 @@ class StormDBManager(object):
 
         deferred = Deferred()
         self._queue.put((_insert, args, kwargs, deferred))
+        if self.measure_calls:
+            return self.log_call(deferred)
         return deferred
 
     def _insert(self, table_name, **kwargs):
@@ -310,6 +340,8 @@ class StormDBManager(object):
 
         deferred = Deferred()
         self._queue.put((_insert_many, args, kwargs, deferred))
+        if self.measure_calls:
+            return self.log_call(deferred)
         return deferred
 
     def delete(self, table_name, **kwargs):
@@ -366,6 +398,8 @@ class StormDBManager(object):
         """Schedules the call to commit the current transaction"""
         deferred = Deferred()
         self._queue.put(exiting)
+        if self.measure_calls:
+            return self.log_call(deferred)
         return deferred
 
     def _commit(self, exiting=False):
