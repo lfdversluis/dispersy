@@ -48,7 +48,7 @@ from time import time
 
 import netifaces
 from twisted.internet import reactor
-from twisted.internet.defer import maybeDeferred, gatherResults, inlineCallbacks, returnValue
+from twisted.internet.defer import maybeDeferred, gatherResults, inlineCallbacks, returnValue, DeferredLock
 from twisted.internet.task import LoopingCall
 from twisted.python.failure import Failure
 from twisted.python.threadable import isInIOThread
@@ -147,6 +147,9 @@ class Dispersy(TaskManager):
 
         # loaded communities.  cid:Community pairs.
         self._communities = {}
+
+        # A lock to prevent the same community being loaded multiple times.
+        self.get_community_lock = DeferredLock()
 
         self._check_distribution_batch_map = {DirectDistribution: self._check_direct_distribution_batch,
                                               FullSyncDistribution: self._check_full_sync_distribution_batch,
@@ -642,7 +645,6 @@ class Dispersy(TaskManager):
         """
         return cid in self._communities
 
-    @inlineCallbacks
     def get_community(self, cid, load=False, auto_load=True):
         """
         Returns a community by its community id.
@@ -671,41 +673,44 @@ class Dispersy(TaskManager):
         assert isinstance(load, bool), type(load)
         assert isinstance(auto_load, bool)
 
-        try:
-            returnValue(self._communities[cid])
+        @inlineCallbacks
+        def _get_community():
+            try:
+                returnValue(self._communities[cid])
 
-        except KeyError:
-            if load or auto_load:
-                try:
-                    # have we joined this community
-                    classification, auto_load_flag, master_public_key = yield self._database.fetchone(
-                        u"""
-                          SELECT community.classification, community.auto_load, member.public_key
-                          FROM community
-                          JOIN member ON member.id = community.master
-                          WHERE mid = ?
-                        """,
-                        (buffer(cid),))
-                except TypeError:
-                    pass
-
-                else:
-                    if load or (auto_load and auto_load_flag):
-                        if classification in self._auto_load_communities:
-                            master = yield self.get_member(public_key=str(master_public_key)) if master_public_key else self.get_member(mid=cid)
-                            cls, my_member, args, kargs = self._auto_load_communities[classification]
-                            community = yield cls.init_community(self, master, my_member, *args, **kargs)
-                            assert master.mid in self._communities
-                            returnValue(community)
-
-                        else:
-                            self._logger.warning("unable to auto load %s is an undefined classification [%s]",
-                                                 cid.encode("HEX"), classification)
+            except KeyError:
+                if load or auto_load:
+                    try:
+                        # have we joined this community
+                        classification, auto_load_flag, master_public_key = yield self._database.fetchone(
+                            u"""
+                              SELECT community.classification, community.auto_load, member.public_key
+                              FROM community
+                              JOIN member ON member.id = community.master
+                              WHERE mid = ?
+                            """,
+                            (buffer(cid),))
+                    except TypeError:
+                        pass
 
                     else:
-                        self._logger.debug("not allowed to load [%s]", classification)
+                        if load or (auto_load and auto_load_flag):
+                            if classification in self._auto_load_communities:
+                                master = yield self.get_member(public_key=str(master_public_key)) if master_public_key else self.get_member(mid=cid)
+                                cls, my_member, args, kargs = self._auto_load_communities[classification]
+                                community = yield cls.init_community(self, master, my_member, *args, **kargs)
+                                assert master.mid in self._communities
+                                returnValue(community)
 
-        raise CommunityNotFoundException(cid)
+                            else:
+                                self._logger.warning("unable to auto load %s is an undefined classification [%s]",
+                                                     cid.encode("HEX"), classification)
+
+                        else:
+                            self._logger.debug("not allowed to load [%s]", classification)
+
+            raise CommunityNotFoundException(cid)
+        return self.get_community_lock.run(_get_community)
 
     def get_communities(self):
         """
