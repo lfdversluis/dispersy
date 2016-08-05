@@ -1,4 +1,4 @@
-from nose.twistedtools import deferred
+from nose.twistedtools import deferred, reactor
 from twisted.internet.defer import inlineCallbacks, returnValue
 
 from .dispersytestclass import DispersyTestFunc
@@ -10,6 +10,7 @@ class TestWalker(DispersyTestFunc):
     @inlineCallbacks
     def setUp(self):
         yield super(TestWalker, self).setUp()
+        reactor.suggestThreadPoolSize(30)
 
     @deferred(timeout=10)
     @inlineCallbacks
