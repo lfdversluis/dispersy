@@ -23,7 +23,7 @@ class TestWalker(DispersyTestFunc):
     @deferred(timeout=10)
     def test_two_walker(self): return self.check_walker(["", ""])
 
-    @deferred(timeout=10)
+    @deferred(timeout=20)
     def test_many_walker(self): return self.check_walker([""] * 22)
 
     @deferred(timeout=10)
@@ -32,19 +32,19 @@ class TestWalker(DispersyTestFunc):
     @deferred(timeout=10)
     def test_two_t_walker(self): return self.check_walker(["t", "t"])
 
-    @deferred(timeout=10)
+    @deferred(timeout=20)
     def test_many_t_walker(self): return self.check_walker(["t"] * 22)
 
     @deferred(timeout=10)
     def test_two_mixed_walker_a(self): return self.check_walker(["", "t"])
 
-    @deferred(timeout=10)
+    @deferred(timeout=20)
     def test_many_mixed_walker_a(self): return self.check_walker(["", "t"] * 11)
 
     @deferred(timeout=10)
     def test_two_mixed_walker_b(self): return self.check_walker(["t", ""])
 
-    @deferred(timeout=10)
+    @deferred(timeout=20)
     def test_many_mixed_walker_b(self): return self.check_walker(["t", ""] * 11)
 
     @inlineCallbacks
@@ -53,6 +53,7 @@ class TestWalker(DispersyTestFunc):
         assert all(isinstance(flags, str) for flags in all_flags)
 
         nodes = []
+        print len(all_flags)
         for flags in all_flags:
             node, = yield self.create_nodes(tunnel="t" in flags)
             nodes.append(node)
