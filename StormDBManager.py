@@ -191,13 +191,8 @@ class StormDBManager(object):
         Returns: A deferred that fires with None once all statements have been executed.
 
         """
-
-        # caller = find_caller()
-        # print "CALLER: ", caller
-
         def _executescript(self, sql_statements):
-            for sql_statement in sql_statements:
-                self.execute(sql_statement)
+            self._cursor.executescript(sql_statements)
 
         deferred = Deferred()
         self._queue.put((_executescript, args, kwargs, deferred))

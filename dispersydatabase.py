@@ -15,60 +15,52 @@ from .distribution import FullSyncDistribution
 
 LATEST_VERSION = 21
 
-schema = [
-    u"""
-    CREATE TABLE member(
-     id INTEGER PRIMARY KEY AUTOINCREMENT,
-     mid BLOB,                                      -- member identifier (sha1 of public_key)
-     public_key BLOB,                               -- member public key
-     private_key BLOB);                             -- member private key
-     """,
-
-    u"""CREATE INDEX member_mid_index ON member(mid);""",
-    u"""CREATE TABLE community(
-     id INTEGER PRIMARY KEY AUTOINCREMENT,
-     master INTEGER REFERENCES member(id),          -- master member (permission tree root)
-     member INTEGER REFERENCES member(id),          -- my member (used to sign messages)
-     classification TEXT,                           -- community type, typically the class name
-     auto_load BOOL DEFAULT 1,                      -- when 1 this community is loaded whenever a packet for it is received
-     database_version INTEGER DEFAULT """ + str(LATEST_VERSION) + u""",
-     UNIQUE(master));""",
-
-    u"""CREATE TABLE meta_message(
-     id INTEGER PRIMARY KEY AUTOINCREMENT,
-     community INTEGER REFERENCES community(id),
-     name TEXT,
-     priority INTEGER DEFAULT 128,
-     direction INTEGER DEFAULT 1,                           -- direction used when synching (1 for ASC, -1 for DESC)
-     UNIQUE(community, name));""",
-
-    u"""CREATE TABLE double_signed_sync(
-     sync INTEGER REFERENCES sync(id),
-     member1 INTEGER REFERENCES member(id),
-     member2 INTEGER REFERENCES member(id));""",
-
-    u"""CREATE INDEX double_signed_sync_index_0 ON double_signed_sync(member1, member2);""",
-
-    u"""CREATE TABLE sync(
-     id INTEGER PRIMARY KEY AUTOINCREMENT,
-     community INTEGER REFERENCES community(id),
-     member INTEGER REFERENCES member(id),                  -- the creator of the message
-     global_time INTEGER,
-     meta_message INTEGER REFERENCES meta_message(id),
-     undone INTEGER DEFAULT 0,
-     packet BLOB,
-     sequence INTEGER,
-     UNIQUE(community, member, global_time));""",
-
-    u"""CREATE INDEX sync_meta_message_undone_global_time_index ON sync(meta_message, undone, global_time);""",
-
-    u"""CREATE INDEX sync_meta_message_member ON sync(meta_message, member);""",
-
-    u"""CREATE TABLE option(key TEXT PRIMARY KEY, value BLOB);""",
-
-    U"""INSERT INTO option(key, value) VALUES('database_version', '""" + str(LATEST_VERSION) + u"""');"""
-
-]
+schema = u"""
+CREATE TABLE member(
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ mid BLOB,                                      -- member identifier (sha1 of public_key)
+ public_key BLOB,                               -- member public key
+ private_key BLOB);                             -- member private key
+CREATE INDEX member_mid_index ON member(mid);
+CREATE TABLE community(
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ master INTEGER REFERENCES member(id),          -- master member (permission tree root)
+ member INTEGER REFERENCES member(id),          -- my member (used to sign messages)
+ classification TEXT,                           -- community type, typically the class name
+ auto_load BOOL DEFAULT 1,                      -- when 1 this community is loaded whenever a packet for it is received
+ database_version INTEGER DEFAULT """ + str(LATEST_VERSION) + """,
+ UNIQUE(master));
+CREATE TABLE meta_message(
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ community INTEGER REFERENCES community(id),
+ name TEXT,
+ priority INTEGER DEFAULT 128,
+ direction INTEGER DEFAULT 1,                           -- direction used when synching (1 for ASC, -1 for DESC)
+ UNIQUE(community, name));
+--CREATE TABLE reference_member_sync(
+-- member INTEGER REFERENCES member(id),
+-- sync INTEGER REFERENCES sync(id),
+-- UNIQUE(member, sync));
+CREATE TABLE double_signed_sync(
+ sync INTEGER REFERENCES sync(id),
+ member1 INTEGER REFERENCES member(id),
+ member2 INTEGER REFERENCES member(id));
+CREATE INDEX double_signed_sync_index_0 ON double_signed_sync(member1, member2);
+CREATE TABLE sync(
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ community INTEGER REFERENCES community(id),
+ member INTEGER REFERENCES member(id),                  -- the creator of the message
+ global_time INTEGER,
+ meta_message INTEGER REFERENCES meta_message(id),
+ undone INTEGER DEFAULT 0,
+ packet BLOB,
+ sequence INTEGER,
+ UNIQUE(community, member, global_time));
+CREATE INDEX sync_meta_message_undone_global_time_index ON sync(meta_message, undone, global_time);
+CREATE INDEX sync_meta_message_member ON sync(meta_message, member);
+CREATE TABLE option(key TEXT PRIMARY KEY, value BLOB);
+INSERT INTO option(key, value) VALUES('database_version', '""" + str(LATEST_VERSION) + """');
+"""
 
 
 class DispersyDatabase(StormDBManager):
@@ -190,61 +182,49 @@ class DispersyDatabase(StormDBManager):
                 # Member instances.  unfortunately this requires the removal of the UNIQUE clause,
                 # however, the python code already guarantees that the public_key remains unique.
                 self._logger.info("upgrade database %d -> %d", database_version, 17)
-                yield self.executescript([
-                    u"""-- move / remove old member table
-                      DROP INDEX IF EXISTS member_mid_index;""",
-
-                    u"""ALTER TABLE member RENAME TO old_member;""",
-
-                    u"""-- create new member table
-                     CREATE TABLE member(
-                      id INTEGER PRIMARY KEY AUTOINCREMENT,
-                      mid BLOB,                                      -- member identifier (sha1 of public_key)
-                      public_key BLOB,                               -- member public key
-                      tags TEXT DEFAULT '');                         -- comma separated tags: store, ignore, and blacklist""",
-                    u"""CREATE INDEX member_mid_index ON member(mid);""",
-
-                    u"""-- fill new member table with old data
-                      INSERT INTO member (id, mid, public_key, tags) SELECT id, mid, public_key, tags FROM old_member;""",
-
-                    u"""-- remove old member table
-                      DROP TABLE old_member;""",
-
-                    u"""-- update database version
-                      UPDATE option SET value = '17' WHERE key = 'database_version';"""
-                ])
+                yield self.executescript(u"""
+-- move / remove old member table
+DROP INDEX IF EXISTS member_mid_index;
+ALTER TABLE member RENAME TO old_member;
+-- create new member table
+CREATE TABLE member(
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ mid BLOB,                                      -- member identifier (sha1 of public_key)
+ public_key BLOB,                               -- member public key
+ tags TEXT DEFAULT '');                         -- comma separated tags: store, ignore, and blacklist
+CREATE INDEX member_mid_index ON member(mid);
+-- fill new member table with old data
+INSERT INTO member (id, mid, public_key, tags) SELECT id, mid, public_key, tags FROM old_member;
+-- remove old member table
+DROP TABLE old_member;
+-- update database version
+UPDATE option SET value = '17' WHERE key = 'database_version';
+""")
                 self._logger.info("upgrade database %d -> %d (done)", database_version, 17)
 
             # upgrade from version 17 to version 18
             if database_version < 18:
                 # In version 18, we remove the tags column as we don't have blackisting anymore
                 self._logger.debug("upgrade database %d -> %d", database_version, 18)
-                yield self.executescript([
-                    u"""-- move / remove old member table
-                      DROP INDEX IF EXISTS member_mid_index;""",
-
-                    u"""ALTER TABLE member RENAME TO old_member;""",
-
-                    u"""-- create new member table
-                      CREATE TABLE member(
-                      id INTEGER PRIMARY KEY AUTOINCREMENT,
-                      mid BLOB,                                      -- member identifier (sha1 of public_key)
-                      public_key BLOB);                               -- member public key""",
-
-                    u"""CREATE INDEX member_mid_index ON member(mid);""",
-
-                    u"""-- fill new member table with old data
-                      INSERT INTO member (id, mid, public_key) SELECT id, mid, public_key FROM old_member;""",
-
-                    u"""-- remove old member table
-                      DROP TABLE old_member;""",
-
-                    u"""-- remove table malicious_proof
-                      DROP TABLE IF EXISTS malicious_proof;""",
-
-                    u"""-- update database version
-                      UPDATE option SET value = '18' WHERE key = 'database_version';""",
-                ])
+                yield self.executescript(u"""
+-- move / remove old member table
+DROP INDEX IF EXISTS member_mid_index;
+ALTER TABLE member RENAME TO old_member;
+-- create new member table
+CREATE TABLE member(
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ mid BLOB,                                      -- member identifier (sha1 of public_key)
+ public_key BLOB);                               -- member public key
+CREATE INDEX member_mid_index ON member(mid);
+-- fill new member table with old data
+INSERT INTO member (id, mid, public_key) SELECT id, mid, public_key FROM old_member;
+-- remove old member table
+DROP TABLE old_member;
+-- remove table malicious_proof
+DROP TABLE IF EXISTS malicious_proof;
+-- update database version
+UPDATE option SET value = '18' WHERE key = 'database_version';
+""")
                 self._logger.debug("upgrade database %d -> %d (done)", database_version, 18)
 
             # upgrade from version 18 to version 19
@@ -253,35 +233,28 @@ class DispersyDatabase(StormDBManager):
                 # actually simplify the code.
                 self._logger.debug("upgrade database %d -> %d", database_version, 19)
 
-                yield self.executescript([
-                    u"""-- move / remove old member table
-                      DROP INDEX IF EXISTS member_mid_index;""",
-
-                    u"""ALTER TABLE member RENAME TO old_member;""",
-
-                    u"""-- create new member table
-                      CREATE TABLE member(
-                      id INTEGER PRIMARY KEY AUTOINCREMENT,
-                      mid BLOB,                                      -- member identifier (sha1 of public_key)
-                      public_key BLOB,                               -- member public key
-                      private_key BLOB);                             -- member private key""",
-
-                    u"""CREATE INDEX member_mid_index ON member(mid);""",
-
-                    u"""-- fill new member table with old data
-                      INSERT INTO member (id, mid, public_key, private_key)
-                                    SELECT id, mid, public_key, private_key.private_key FROM old_member
-                                    LEFT JOIN private_key ON private_key.member = old_member.id;""",
-
-                    u"""-- remove old member table
-                      DROP TABLE old_member;""",
-
-                    u"""-- remove table  private_key
-                      DROP TABLE IF EXISTS private_key;""",
-
-                    u"""-- update database version
-                      UPDATE option SET value = '19' WHERE key = 'database_version';"""
-                ])
+                yield self.executescript(u"""
+-- move / remove old member table
+DROP INDEX IF EXISTS member_mid_index;
+ALTER TABLE member RENAME TO old_member;
+-- create new member table
+ CREATE TABLE member(
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ mid BLOB,                                      -- member identifier (sha1 of public_key)
+ public_key BLOB,                               -- member public key
+ private_key BLOB);                             -- member private key
+CREATE INDEX member_mid_index ON member(mid);
+-- fill new member table with old data
+INSERT INTO member (id, mid, public_key, private_key)
+                SELECT id, mid, public_key, private_key.private_key FROM old_member
+                LEFT JOIN private_key ON private_key.member = old_member.id;
+-- remove old member table
+DROP TABLE old_member;
+-- remove table private_key
+DROP TABLE IF EXISTS private_key;
+-- update database version
+UPDATE option SET value = '19' WHERE key = 'database_version';
+""")
                 self._logger.debug("upgrade database %d -> %d (done)", database_version, 19)
 
             # Upgrade from 19 to 20
@@ -289,80 +262,61 @@ class DispersyDatabase(StormDBManager):
                 # Let's store the sequence numbers in the database instead of quessing
                 self._logger.debug("upgrade database %d -> %d", database_version, 20)
 
-                yield self.executescript([
-                    u"""DROP INDEX IF EXISTS sync_meta_message_undone_global_time_index;""",
-
-                    u"""DROP INDEX IF EXISTS sync_meta_message_member;"""
-                ])
+                yield self.executescript(u"""
+DROP INDEX IF EXISTS sync_meta_message_undone_global_time_index;
+DROP INDEX IF EXISTS sync_meta_message_member;
+""")
 
                 old_sync = yield self.fetchall(u"""
                     SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'old_sync';""")
                 if old_sync:
                     # delete the sync table and start copying data again
-                    yield self.executescript([
-                        u"""DROP TABLE IF EXISTS sync;""",
-
-                        u"""DROP INDEX IF EXISTS sync_meta_message_undone_global_time_index;""",
-
-                        u"""DROP INDEX IF EXISTS sync_meta_message_member;"""
-                    ])
+                    yield self.executescript(u"""
+DROP TABLE IF EXISTS sync;
+DROP INDEX IF EXISTS sync_meta_message_undone_global_time_index;
+DROP INDEX IF EXISTS sync_meta_message_member;
+""")
                 else:
                     # rename sync to old_sync if it is the first time
                     yield self.execute(u"ALTER TABLE sync RENAME TO old_sync;")
 
-                yield self.executescript([
-                    u"""CREATE TABLE IF NOT EXISTS sync(
-                      id INTEGER PRIMARY KEY AUTOINCREMENT,
-                      community INTEGER REFERENCES community(id),
-                      member INTEGER REFERENCES member(id),                  -- the creator of the message
-                      global_time INTEGER,
-                      meta_message INTEGER REFERENCES meta_message(id),
-                      undone INTEGER DEFAULT 0,
-                      packet BLOB,
-                      sequence INTEGER,
-                      UNIQUE(community, member, global_time, sequence));
-                    """,
-
-                    u"""
-                      CREATE INDEX sync_meta_message_undone_global_time_index
-                      ON sync(meta_message, undone, global_time);
-                    """,
-
-                    u"""CREATE INDEX sync_meta_message_member ON sync(meta_message, member);""",
-
-                    u"""
-                          INSERT INTO sync (id, community, member, global_time, meta_message, undone, packet, sequence)
-                          SELECT id, community, member, global_time, meta_message, undone, packet, NULL FROM old_sync;
-                        """,
-
-                    u"""DROP TABLE IF EXISTS old_sync;""",
-
-                    u"""UPDATE option SET value = '20' WHERE key = 'database_version';"""
-                    ])
+                yield self.executescript(u"""
+CREATE TABLE IF NOT EXISTS sync(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    community INTEGER REFERENCES community(id),
+    member INTEGER REFERENCES member(id),                  -- the creator of the message
+    global_time INTEGER,
+    meta_message INTEGER REFERENCES meta_message(id),
+    undone INTEGER DEFAULT 0,
+    packet BLOB,
+    sequence INTEGER,
+    UNIQUE(community, member, global_time, sequence));
+CREATE INDEX sync_meta_message_undone_global_time_index ON sync(meta_message, undone, global_time);
+CREATE INDEX sync_meta_message_member ON sync(meta_message, member);
+INSERT INTO sync  (id, community, member, global_time, meta_message, undone, packet, sequence)
+    SELECT id, community, member, global_time, meta_message, undone, packet, NULL from old_sync;
+DROP TABLE IF EXISTS old_sync;
+UPDATE option SET value = '20' WHERE key = 'database_version';
+""")
                 self._logger.debug("upgrade database %d -> %d (done)", database_version, 20)
 
             # Upgrade from 20 to 21
             if database_version < 21:
                 # remove 'cluster' column from meta_message table
                 self._logger.debug("upgrade database %d -> %d", database_version, 21)
-                yield self.executescript([
-                    u"""CREATE TABLE meta_message_new(
-                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                     community INTEGER REFERENCES community(id),
-                     name TEXT,
-                     priority INTEGER DEFAULT 128,
-                     direction INTEGER DEFAULT 1,                           -- direction used when synching (1 for ASC, -1 for DESC)
-                     UNIQUE(community, name));""",
-
-                    u"""INSERT INTO meta_message_new(id, community, name, priority, direction)
-                      SELECT id, community, name, priority, direction FROM meta_message ORDER BY id;""",
-
-                    u"""DROP TABLE meta_message;""",
-
-                    u"""ALTER TABLE meta_message_new RENAME TO meta_message;""",
-
-                    u"""UPDATE option SET value = '21' WHERE key = 'database_version';"""
-                ])
+                yield self.executescript(u"""
+CREATE TABLE meta_message_new(
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ community INTEGER REFERENCES community(id),
+ name TEXT,
+ priority INTEGER DEFAULT 128,
+ direction INTEGER DEFAULT 1,                           -- direction used when synching (1 for ASC, -1 for DESC)
+ UNIQUE(community, name));
+INSERT INTO meta_message_new(id, community, name, priority, direction)
+  SELECT id, community, name, priority, direction FROM meta_message ORDER BY id;
+DROP TABLE meta_message;
+ALTER TABLE meta_message_new RENAME TO meta_message;
+UPDATE option SET value = '21' WHERE key = 'database_version';""")
                 self._logger.debug("upgrade database %d -> %d (done)", database_version, 21)
 
         returnValue(LATEST_VERSION)
