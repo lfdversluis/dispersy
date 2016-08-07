@@ -139,7 +139,6 @@ class StormDBManager(object):
         else it returns with the last inserted row id.
 
         """
-
         def _execute(self, query, arguments=(), get_lastrowid=False):
             ret = None
             if get_lastrowid:
@@ -167,10 +166,6 @@ class StormDBManager(object):
         Returns: A deferred that fires once the execution is done, the result will be None.
 
         """
-        #
-        # caller = find_caller()
-        # print "CALLER: ", caller
-
         def _executemany(self, query, list):
             self._cursor.executemany(query, list)
 
@@ -216,10 +211,6 @@ class StormDBManager(object):
         None instead of a StopIterationException.
 
         """
-
-        # caller = find_caller()
-        # print "CALLER: ", caller
-
         def _fetchone(self, query, arguments=()):
             try:
                 return self._cursor.execute(query, arguments).next()
@@ -244,10 +235,6 @@ class StormDBManager(object):
         Returns: A deferred that fires with a list of tuple results that matches the query, possibly empty.
 
         """
-
-        # caller = find_caller()
-        # print "CALLER: ", caller
-
         def _fetchall(self, query, arguments=()):
             return self._cursor.execute(query, arguments).fetchall()
 
@@ -268,10 +255,6 @@ class StormDBManager(object):
         Returns: A deferred that fires with None when the data has been inserted.
 
         """
-
-        # caller = find_caller()
-        # print "CALLER: ", caller
-
         def _insert(self, table_name, **kwargs):
             self._insert(table_name, **kwargs)
 
@@ -296,10 +279,6 @@ class StormDBManager(object):
         Returns: A deferred that fires with None when the data has been inserted.
 
         """
-
-        # caller = find_caller()
-        # print "CALLER: ", caller
-
         if len(kwargs) == 0:
             raise ValueError("No keyword arguments supplied.")
         if len(kwargs) == 1:
@@ -322,11 +301,6 @@ class StormDBManager(object):
         Returns: A deferred that fires with None once the bulk insertion is done.
 
         """
-
-        # caller = find_caller()
-        # print "CALLER: ", caller
-
-
         def _insert_many(self, table_name, arg_list):
             if len(arg_list) == 0:
                 return
@@ -354,10 +328,6 @@ class StormDBManager(object):
         Returns: A deferred that fires with None once the deletion has been performed.
 
         """
-
-        # caller = find_caller()
-        # print "CALLER: ", caller
-
         sql = u'DELETE FROM %s WHERE ' % table_name
         arg = []
         for k, v in kwargs.iteritems():
@@ -379,18 +349,10 @@ class StormDBManager(object):
 
         Returns: A deferred that fires with the number of rows in the table.
         """
-
-        # caller = find_caller()
-        # print "CALLER: ", caller
-
         sql = u"SELECT count(*) FROM %s LIMIT 1" % table_name
         return self.fetchone(sql)
 
     def commit(self, *args, **kwargs):
-
-        # caller = find_caller()
-        # print "CALLER: ", caller
-
         """Schedules the call to commit the current transaction"""
         def _commit(self, exiting=False):
             """
