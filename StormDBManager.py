@@ -33,7 +33,7 @@ class StormDBManager(object):
         self._pending_commits = 0
         self._commit_callbacks = []
         self._queue = Queue()
-        self.measure_calls = True
+        self.measure_calls = False
 
         # The transactor is required when you have methods decorated with the @transact decorator
         # This field name must NOT be changed.
