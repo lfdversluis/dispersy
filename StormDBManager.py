@@ -73,6 +73,7 @@ class StormDBManager(object):
         yield self._retrieve_version()
         returnValue(True)
 
+    @inlineCallbacks
     def close(self, commit=True):
         """
         Closes the worker and returns the worker deferred. Once this fires, the worker has cleaned up.
@@ -80,11 +81,11 @@ class StormDBManager(object):
         :return:
         """
         if commit:
-            self.commit(exiting=True)
+            yield self.commit(exiting=True)
 
         self._queue.put(None)
         self._logger.debug("close database [%s]", self.db_path)
-        return self.worker
+        yield self.worker
 
     def delete_tmp_database(self, _):
         """
@@ -385,38 +386,38 @@ class StormDBManager(object):
         sql = u"SELECT count(*) FROM %s LIMIT 1" % table_name
         return self.fetchone(sql)
 
-    def commit(self, exiting=False):
+    def commit(self, *args, **kwargs):
 
         # caller = find_caller()
         # print "CALLER: ", caller
 
         """Schedules the call to commit the current transaction"""
+        def _commit(self, exiting=False):
+            """
+            Commits the current transaction.
+            :param exiting: A boolean indicating if Dispersy is exiting.
+            :return: False if there are pending commits else the result of the commit.
+            """
+            if self._pending_commits:
+                self._logger.debug("defer commit [%s]", self.db_path)
+                self._pending_commits += 1
+                return False
+
+            else:
+                self._logger.debug("commit [%s]", self.db_path)
+                for callback in self._commit_callbacks:
+                    try:
+                        callback(exiting=exiting)
+                    except Exception as exception:
+                        self._logger.exception("%s [%s]", exception, self.db_path)
+
+                return self.connection.commit()
+
         deferred = Deferred()
-        self._queue.put(exiting)
+        self._queue.put((_commit, args, kwargs, deferred))
         if self.measure_calls:
             return self.log_call(deferred)
         return deferred
-
-    def _commit(self, exiting=False):
-        """
-        Commits the current transaction.
-        :param exiting: A boolean indicating if Dispersy is exiting.
-        :return: False if there are pending commits else the result of the commit.
-        """
-        if self._pending_commits:
-            self._logger.debug("defer commit [%s]", self.db_path)
-            self._pending_commits += 1
-            return False
-
-        else:
-            self._logger.debug("commit [%s]", self.db_path)
-            for callback in self._commit_callbacks:
-                try:
-                    callback(exiting=exiting)
-                except Exception as exception:
-                    self._logger.exception("%s [%s]", exception, self.db_path)
-
-            return self.connection.commit()
 
     def __enter__(self):
         """
@@ -468,9 +469,7 @@ class StormDBManager(object):
         self._cursor = self.connection.cursor()
         while True:
             item = self._queue.get()
-            if isinstance(item, bool):
-                self._commit(exiting=item)
-            elif item is None:
+            if item is None:
                 break
             elif isinstance(item, tuple):
                 func, args, kwargs, deferred = item

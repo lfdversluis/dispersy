@@ -1803,7 +1803,7 @@ ORDER BY global_time""", (meta.database_id, member_database_id))
             my_messages = sum(message.authentication.member == message.community.my_member for message in messages)
             if my_messages:
                 self._logger.debug("commit user generated message")
-                self._database.commit()
+                yield self._database.commit()
 
                 messages[0].community.statistics.increase_msg_count(u"created", messages[0].meta.name, my_messages)
 
@@ -2180,13 +2180,14 @@ ORDER BY global_time""", (meta.database_id, member_database_id))
 
         self._logger.debug("%s success", community.cid.encode("HEX"))
 
+    @inlineCallbacks
     def _flush_database(self):
         """
         Periodically called to commit database changes to disk.
         """
         try:
             # flush changes to disk every 1 minutes
-            self._database.commit()
+            yield self._database.commit()
 
         except Exception as exception:
             # OperationalError: database is locked
