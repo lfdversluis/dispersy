@@ -83,7 +83,7 @@ class StormDBManager(object):
         if commit:
             yield self.commit(exiting=True)
 
-        self._queue.put(None)
+        self._queue.put_nowait(None)
         self._logger.debug("close database [%s]", self.db_path)
         yield self.worker
 
@@ -123,7 +123,7 @@ class StormDBManager(object):
 
         """
         deferred = Deferred()
-        self._queue.put((callable, args, kwargs, deferred))
+        self._queue.put_nowait((callable, args, kwargs, deferred))
         return deferred
 
     def execute(self, *args, **kwargs):
@@ -150,7 +150,7 @@ class StormDBManager(object):
             return ret
 
         deferred = Deferred()
-        self._queue.put((_execute, args, kwargs, deferred))
+        self._queue.put_nowait((_execute, args, kwargs, deferred))
         if self.measure_calls:
             return self.log_call(deferred)
         return deferred
@@ -175,7 +175,7 @@ class StormDBManager(object):
             self._cursor.executemany(query, list)
 
         deferred = Deferred()
-        self._queue.put((_executemany, args, kwargs, deferred))
+        self._queue.put_nowait((_executemany, args, kwargs, deferred))
         if self.measure_calls:
             return self.log_call(deferred)
         return deferred
@@ -196,7 +196,7 @@ class StormDBManager(object):
             self._cursor.executescript(sql_statements)
 
         deferred = Deferred()
-        self._queue.put((_executescript, args, kwargs, deferred))
+        self._queue.put_nowait((_executescript, args, kwargs, deferred))
         if self.measure_calls:
             return self.log_call(deferred)
         return deferred
@@ -227,7 +227,7 @@ class StormDBManager(object):
                 return None
 
         deferred = Deferred()
-        self._queue.put((_fetchone, args, kwargs, deferred))
+        self._queue.put_nowait((_fetchone, args, kwargs, deferred))
         if self.measure_calls:
             return self.log_call(deferred)
         return deferred
@@ -252,7 +252,7 @@ class StormDBManager(object):
             return self._cursor.execute(query, arguments).fetchall()
 
         deferred = Deferred()
-        self._queue.put((_fetchall, args, kwargs, deferred))
+        self._queue.put_nowait((_fetchall, args, kwargs, deferred))
         if self.measure_calls:
             return self.log_call(deferred)
         return deferred
@@ -276,7 +276,7 @@ class StormDBManager(object):
             self._insert(table_name, **kwargs)
 
         deferred = Deferred()
-        self._queue.put((_insert, args, kwargs, deferred))
+        self._queue.put_nowait((_insert, args, kwargs, deferred))
         if self.measure_calls:
             return self.log_call(deferred)
         return deferred
@@ -335,7 +335,7 @@ class StormDBManager(object):
                 self._insert(table_name, **args)
 
         deferred = Deferred()
-        self._queue.put((_insert_many, args, kwargs, deferred))
+        self._queue.put_nowait((_insert_many, args, kwargs, deferred))
         if self.measure_calls:
             return self.log_call(deferred)
         return deferred
@@ -414,7 +414,7 @@ class StormDBManager(object):
                 return self.connection.commit()
 
         deferred = Deferred()
-        self._queue.put((_commit, args, kwargs, deferred))
+        self._queue.put_nowait((_commit, args, kwargs, deferred))
         if self.measure_calls:
             return self.log_call(deferred)
         return deferred
