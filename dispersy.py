@@ -710,6 +710,7 @@ class Dispersy(TaskManager):
                             self._logger.debug("not allowed to load [%s]", classification)
 
             raise CommunityNotFoundException(cid)
+        # TODO(Laurens): Replace this with a semaphore based on the community id for additional performance
         return self.get_community_lock.run(_get_community)
 
     def get_communities(self):
