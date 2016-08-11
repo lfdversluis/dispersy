@@ -28,7 +28,7 @@ CREATE TABLE community(
  member INTEGER REFERENCES member(id),          -- my member (used to sign messages)
  classification TEXT,                           -- community type, typically the class name
  auto_load BOOL DEFAULT 1,                      -- when 1 this community is loaded whenever a packet for it is received
- database_version INTEGER DEFAULT """ + str(LATEST_VERSION) + """,
+ database_version INTEGER DEFAULT """ + str(LATEST_VERSION) + u""",
  UNIQUE(master));
 CREATE TABLE meta_message(
  id INTEGER PRIMARY KEY AUTOINCREMENT,
