@@ -856,7 +856,7 @@ class Community(TaskManager):
                 self._logger.debug("%s no messages to sync", self.cid.encode("HEX"))
 
         elif __debug__:
-            self._logger.debug("%s NOT syncing no syncable messages", self.cid.encode("HEX"))
+            self._logger.info("%s NOT syncing no syncable messages", self.cid.encode("HEX"))
         returnValue((1, acceptable_global_time, 1, 0, BloomFilter(8, 0.1, prefix='\x00')))
 
     @inlineCallbacks
@@ -2781,6 +2781,9 @@ class Community(TaskManager):
                     # BLOOM_FILTER must be the same after transmission
                     test_bloom_filter = BloomFilter(bloom_filter.bytes, bloom_filter.functions, prefix=bloom_filter.prefix)
                     assert bloom_filter.bytes == test_bloom_filter.bytes, "problem with the long <-> binary conversion"
+                    for packet in packets:
+                        if bloom_filter.not_filter((packet,)):
+                            print hex(packet)
                     assert list(bloom_filter.not_filter((packet,) for packet in packets)) == [], "does not have all correct bits set before transmission"
                     assert list(test_bloom_filter.not_filter((packet,) for packet in packets)) == [], "does not have all correct bits set after transmission"
 
@@ -2835,6 +2838,7 @@ class Community(TaskManager):
         @return: An generator yielding the original request and a generator consisting of the packets matching the request
         """
 
+        self._logger.error("AT THE START OF _get_packets_for_bloomfilters")
         assert isinstance(requests, list)
         assert all(isinstance(request, (list, tuple)) for request in requests)
         assert all(len(request) == 5 for request in requests)
@@ -2890,6 +2894,7 @@ class Community(TaskManager):
             db_res = yield self._dispersy.database.fetchall(sql, sql_arguments)
             return_messages.append((message, ((str(packet),) for packet, in db_res)))
 
+        self._logger.error("AT THE END OF _get_packets_for_bloomfilters")
         returnValue(iter(return_messages))
 
     def check_puncture_request(self, messages):

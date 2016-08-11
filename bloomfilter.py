@@ -164,17 +164,20 @@ class BloomFilter(object):
         """
         Add KEY to the BloomFilter.
         """
+        self._logger.error("AT THE START OF ADD IN BLOOMFILTER")
         filter_ = self._filter
         hash_ = self._salt.copy()
         hash_.update(key)
         for pos in self._fmt_unpack(hash_.digest()):
             filter_ |= 1 << (pos % self._m_size)
         self._filter = filter_
+        self._logger.error("AT THE END OF ADD IN BLOOMFILTER")
 
     def add_keys(self, keys):
         """
         Add a sequence of KEYS to the BloomFilter.
         """
+        self._logger.error("AT THE START OF ADD_KEYS IN BLOOMFILTER")
         filter_ = self._filter
         salt_copy = self._salt.copy
         m_size = self._m_size
@@ -192,6 +195,7 @@ class BloomFilter(object):
                 filter_ |= 1 << (pos % m_size)
 
         self._filter = filter_
+        self._logger.error("AT THE END OF ADD_KEYS IN BLOOMFILTER")
 
     def clear(self):
         """
