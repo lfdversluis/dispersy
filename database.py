@@ -5,9 +5,11 @@ This module provides basic database functionalty and simple version control.
 @organization: Technical University Delft
 @contact: dispersy@frayja.com
 """
+import inspect
 import logging
 import sys
 import thread
+from time import time
 from abc import ABCMeta, abstractmethod
 from sqlite3 import Connection
 
@@ -247,6 +249,26 @@ class Database(object):
             # returning False to let Python reraise the exception.
             return False
 
+    def write_time(self, duration, db_operation, caller):
+        end = time()
+        if caller is not None:
+            with open("db_calls_sync.txt", "a") as myfile:
+                myfile.write("%s %s %s %s %s %s\n" % (end, db_operation, caller[0], caller[1], caller[2], duration))
+
+    def log_call(self, duration,):
+        return self.write_time(duration, inspect.stack()[1][3], self.find_caller(3))
+
+    def find_caller(self, start):
+        """
+        Get's the caller of a function
+        :param start: From which frame on we should search.
+        :return: A tuple (function name, line in code) or none
+        """
+        stack = inspect.stack()
+        for i in range(start, len(stack)):
+            if (any(x in stack[i][1] for x in ["tribler", "dispersy"])):
+                return (stack[i][3], stack[i][2], stack[i][1])
+
     @attach_explain_query_plan
     @attach_runtime_statistics(u"{0.__class__.__name__}.{function_name} {1} [{0.file_path}]")
     def execute(self, statement, bindings=(), get_lastrowid=False):
@@ -273,6 +295,7 @@ class Database(object):
         @returns: unknown
         @raise sqlite.Error: unknown
         """
+        start = time()
         if __debug__:
             assert self._cursor is not None, "Database.close() has been called or Database.open() has not been called"
             assert self._connection is not None, "Database.close() has been called or Database.open() has not been called"
@@ -293,10 +316,13 @@ class Database(object):
         result = self._cursor.execute(statement, bindings)
         if get_lastrowid:
             result = self._cursor.lastrowid
+
+        self.log_call(time() - start)
         return result
 
     @attach_runtime_statistics(u"{0.__class__.__name__}.{function_name} {1} [{0.file_path}]")
     def executescript(self, statements):
+        start = time()
         assert self._cursor is not None, "Database.close() has been called or Database.open() has not been called"
         assert self._connection is not None, "Database.close() has been called or Database.open() has not been called"
         assert self._debug_thread_ident != 0, "please call database.open() first"
@@ -304,6 +330,7 @@ class Database(object):
         assert isinstance(statements, unicode), "The SQL statement must be given in unicode"
 
         self._logger.log(logging.NOTSET, "%s [%s]", statements, self._file_path)
+        self.log_call(time() - start)
         return self._cursor.executescript(statements)
 
     @attach_explain_query_plan
@@ -335,6 +362,7 @@ class Database(object):
         @returns: unknown
         @raise sqlite.Error: unknown
         """
+        start = time()
         assert self._cursor is not None, "Database.close() has been called or Database.open() has not been called"
         assert self._connection is not None, "Database.close() has been called or Database.open() has not been called"
         assert self._debug_thread_ident != 0, "please call database.open() first"
@@ -364,6 +392,7 @@ class Database(object):
                 sequenceofbindings = iter(sequenceofbindings)
 
         self._logger.log(logging.NOTSET, "%s [%s]", statement, self._file_path)
+        self.log_call(time() - start)
         return self._cursor.executemany(statement, sequenceofbindings)
 
     @attach_runtime_statistics(u"{0.__class__.__name__}.{function_name} [{0.file_path}]")
@@ -380,6 +409,7 @@ class Database(object):
             return False
 
         else:
+            start = time()
             self._logger.debug("commit [%s]", self._file_path)
             for callback in self._commit_callbacks:
                 try:
@@ -387,6 +417,7 @@ class Database(object):
                 except Exception as exception:
                     self._logger.exception("%s [%s]", exception, self._file_path)
 
+            self.log_call(time() - start)
             return self._connection.commit()
 
     @abstractmethod
