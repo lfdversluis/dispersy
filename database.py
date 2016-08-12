@@ -255,9 +255,6 @@ class Database(object):
             with open("db_calls_sync.txt", "a") as myfile:
                 myfile.write("%s %s %s %s %s %s\n" % (end, db_operation, caller[0], caller[1], caller[2], duration))
 
-    def log_call(self, duration,):
-        return self.write_time(duration, inspect.stack()[1][3], self.find_caller(3))
-
     def find_caller(self, start):
         """
         Get's the caller of a function
@@ -317,7 +314,7 @@ class Database(object):
         if get_lastrowid:
             result = self._cursor.lastrowid
 
-        self.log_call(time.time() - start)
+        self.write_time(time.time() - start, inspect.stack()[0][3], self.find_caller(3))
         return result
 
     @attach_runtime_statistics(u"{0.__class__.__name__}.{function_name} {1} [{0.file_path}]")
@@ -330,7 +327,7 @@ class Database(object):
         assert isinstance(statements, unicode), "The SQL statement must be given in unicode"
 
         self._logger.log(logging.NOTSET, "%s [%s]", statements, self._file_path)
-        self.log_call(time.time() - start)
+        self.write_time(time.time() - start, inspect.stack()[0][3], self.find_caller(3))
         return self._cursor.executescript(statements)
 
     @attach_explain_query_plan
@@ -392,7 +389,7 @@ class Database(object):
                 sequenceofbindings = iter(sequenceofbindings)
 
         self._logger.log(logging.NOTSET, "%s [%s]", statement, self._file_path)
-        self.log_call(time.time() - start)
+        self.write_time(time.time() - start, inspect.stack()[0][3], self.find_caller(3))
         return self._cursor.executemany(statement, sequenceofbindings)
 
     @attach_runtime_statistics(u"{0.__class__.__name__}.{function_name} [{0.file_path}]")
@@ -417,7 +414,7 @@ class Database(object):
                 except Exception as exception:
                     self._logger.exception("%s [%s]", exception, self._file_path)
 
-            self.log_call(time.time() - start)
+            self.write_time(time.time() - start, inspect.stack()[0][3], self.find_caller(3))
             return self._connection.commit()
 
     @abstractmethod
