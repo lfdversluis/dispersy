@@ -14,7 +14,7 @@ from socket import inet_aton, socket, AF_INET, SOCK_DGRAM
 from struct import unpack_from
 
 from twisted.internet import reactor, defer
-from twisted.internet.defer import inlineCallbacks, returnValue
+from twisted.internet.defer import inlineCallbacks, returnValue, DeferredLock
 from twisted.internet.task import LoopingCall
 from twisted.python import failure
 from twisted.python.threadable import isInIOThread
@@ -178,6 +178,16 @@ class deprecated(object):
             warnings.warn(message, DeprecationWarning, stacklevel=2)
             return func(*args, **kwargs)
         return wrapper_func
+
+
+def run_in_deferred_lock(method):
+    @functools.wraps(method)
+    def wrapped(*args, **kwargs):
+        if not hasattr(method, 'lock'):
+            method.lock = DeferredLock()
+
+        return method.lock.run(method, *args, **kwargs)
+    return wrapped
 
 #
 # General Instrumentation stuff

@@ -42,8 +42,8 @@ from .resolution import PublicResolution, LinearResolution, DynamicResolution
 from .statistics import CommunityStatistics
 from .taskmanager import TaskManager
 from .timeline import Timeline
-from .util import runtime_duration_warning, attach_runtime_statistics, deprecated, is_valid_address
-
+from .util import runtime_duration_warning, attach_runtime_statistics, deprecated, is_valid_address, \
+    run_in_deferred_lock
 
 DOWNLOAD_MM_PK_INTERVAL = 15.0
 FAST_WALKER_CANDIDATE_TARGET = 15
@@ -2732,6 +2732,7 @@ class Community(TaskManager):
                 if self._dispersy._statistics.received_introductions is not None:
                     self._dispersy._statistics.received_introductions[candidate.sock_addr]['-ignored-'] += 1
 
+    @run_in_deferred_lock
     @inlineCallbacks
     def create_introduction_request(self, destination, allow_sync, forward=True, is_fast_walker=False, extra_payload=None):
         assert isinstance(destination, WalkCandidate), [type(destination), destination]
