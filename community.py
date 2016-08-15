@@ -1241,6 +1241,7 @@ class Community(TaskManager):
         else:
             switch_to_normal_walking()
 
+    @run_in_deferred_lock
     @inlineCallbacks
     def take_step(self):
         now = time()
