@@ -90,7 +90,7 @@ class IntroductionRequestCache(RandomNumberCache):
     @property
     def timeout_delay(self):
         # we will accept the response at most 10.5 seconds after our request
-        return 100.5
+        return 10.5
 
     def __init__(self, community, helper_candidate):
         super(IntroductionRequestCache, self).__init__(community.request_cache, u"introduction-request")

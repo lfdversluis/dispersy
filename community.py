@@ -735,10 +735,12 @@ class Community(TaskManager):
         if self._sync_cache:
             if self._sync_cache.responses_received > 0:
                 if self.dispersy_sync_skip_enable:
+                    self._logger.error("ERROR 1")
                     # We have received data, reset skip counter
                     self._sync_cache_skip_count = 0
 
                 if self.dispersy_sync_cache_enable and self._sync_cache.times_used < 100:
+                    self._logger.error("ERROR 2")
                     self._statistics.sync_bloom_reuse += 1
                     self._statistics.sync_bloom_send += 1
                     cache = self._sync_cache
@@ -752,6 +754,7 @@ class Community(TaskManager):
                     returnValue((cache.time_low, cache.time_high, cache.modulo, cache.offset, cache.bloom_filter))
 
             elif self._sync_cache.times_used == 0:
+                self._logger.error("ERROR 3")
                 # Still no updates, gradually increment the skipping probability one notch
                 self._logger.debug("skip:%d -> %d  received:%d", self._sync_cache_skip_count,
                                    min(self._sync_cache_skip_count + 1, self._SKIP_STEPS),
@@ -761,6 +764,7 @@ class Community(TaskManager):
         if (self.dispersy_sync_skip_enable and
             self._sync_cache_skip_count and
                 random() < self._SKIP_CURVE_STEPS[self._sync_cache_skip_count - 1]):
+                self._logger.error("ERROR 4")
                 # Lets skip this one
                 self._logger.debug("skip: random() was <%f", self._SKIP_CURVE_STEPS[self._sync_cache_skip_count - 1])
                 self._statistics.sync_bloom_skip += 1
@@ -769,6 +773,7 @@ class Community(TaskManager):
 
         sync = yield self.dispersy_sync_bloom_filter_strategy(request_cache)
         if sync:
+            self._logger.error("ERROR 5")
             self._sync_cache = SyncCache(*sync)
             self._sync_cache.candidate = request_cache.helper_candidate
             self._statistics.sync_bloom_new += 1
