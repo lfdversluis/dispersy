@@ -2782,9 +2782,6 @@ class Community(TaskManager):
                     # BLOOM_FILTER must be the same after transmission
                     test_bloom_filter = BloomFilter(bloom_filter.bytes, bloom_filter.functions, prefix=bloom_filter.prefix)
                     assert bloom_filter.bytes == test_bloom_filter.bytes, "problem with the long <-> binary conversion"
-                    for packet in packets:
-                        if bloom_filter.not_filter((packet,)):
-                            print hex(packet)
                     assert list(bloom_filter.not_filter((packet,) for packet in packets)) == [], "does not have all correct bits set before transmission"
                     assert list(test_bloom_filter.not_filter((packet,) for packet in packets)) == [], "does not have all correct bits set after transmission"
 
