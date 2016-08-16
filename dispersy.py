@@ -1586,7 +1586,7 @@ class Dispersy(TaskManager):
         assert len(messages) == len(set((message.authentication.member.database_id, message.distribution.global_time) for message in messages)), messages[0].name
 
         meta = messages[0].meta
-        self._logger.debug("attempting to store %d %s messages", len(messages), meta.name)
+        self._logger.error("attempting to store %d %s messages", len(messages), meta.name)
         is_double_member_authentication = isinstance(meta.authentication, DoubleMemberAuthentication)
         highest_global_time = 0
         highest_sequence_number = defaultdict(int)
