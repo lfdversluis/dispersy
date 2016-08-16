@@ -913,6 +913,7 @@ class Community(TaskManager):
     @inlineCallbacks
     # TODO(Laurens): request_cache is not used.
     def _select_and_fix(self, request_cache, syncable_messages, global_time, to_select, higher=True):
+        self._logger.error("_select_and_fix args: %s %s %s %s", syncable_messages, global_time, to_select, higher)
         assert isinstance(syncable_messages, unicode)
         if higher:
             data = yield self._dispersy.database.fetchall(u"SELECT global_time, packet FROM sync WHERE meta_message IN (%s) AND undone = 0 AND global_time > ? ORDER BY global_time ASC LIMIT ?" % (syncable_messages),
