@@ -773,6 +773,7 @@ class Community(TaskManager):
                 returnValue(None)
 
         sync = yield self.dispersy_sync_bloom_filter_strategy(request_cache)
+
         if sync:
             self._logger.error("ERROR 5")
             self._sync_cache = SyncCache(*sync)
@@ -922,6 +923,7 @@ class Community(TaskManager):
 
         fixed = False
         if len(data) > to_select:
+            self._logger.error("Len(dat) was bigger than to_select in _select_and_fix global time last: %s second last: %s", data[-1][0], data[-2][0])
             fixed = True
 
             # if last 2 packets are equal, then we need to drop those
