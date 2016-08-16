@@ -2779,6 +2779,7 @@ class Community(TaskManager):
                         bloomfilter_packets = yield self._get_packets_for_bloomfilters([[None, time_low, self.global_time if time_high == 0 else time_high, offset, modulo]], include_inactive=True)
                         _, packets = bloomfilter_packets.next()
                         packets = [packet for packet, in packets]
+                        self._logger.error("LEN OF PACKETS IN create_introduction_request %s", len(packets))
 
                     except OverflowError:
                         self._logger.error("time_low:  %d", time_low)

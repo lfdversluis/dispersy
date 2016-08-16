@@ -188,7 +188,7 @@ class BloomFilter(object):
 
         for key in keys:
             assert isinstance(key, str)
-            self._logger.error("AT THE START OF ADD IN BLOOMFILTER, ADDING 1 Key")
+            self._logger.error("IN add_keys, ADDING 1 Key")
             hash_ = salt_copy()
             hash_.update(key)
 
