@@ -195,9 +195,9 @@ def wrap_in_shared_lock(lock_name):
         @functools.wraps(method)
         def wrapped(obj, *args, **kwargs):
             if not hasattr(obj, lock_name):
-                obj.setattr(lock_name, DeferredLock())
+                setattr(obj, lock_name, DeferredLock())
 
-            return obj.lock_name.run(method, *args, **kwargs)
+            return getattr(obj, lock_name).run(method, obj, *args, **kwargs)
         return wrapped
     return wrap_function
 
