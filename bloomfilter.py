@@ -181,7 +181,6 @@ class BloomFilter(object):
         """
         Add a sequence of KEYS to the BloomFilter.
         """
-        self._logger.error("AT THE START OF ADD_KEYS IN BLOOMFILTER, ADDING %s keys", len(keys))
         filter_ = self._filter
         salt_copy = self._salt.copy
         m_size = self._m_size
@@ -189,6 +188,7 @@ class BloomFilter(object):
 
         for key in keys:
             assert isinstance(key, str)
+            self._logger.error("AT THE START OF ADD IN BLOOMFILTER, ADDING 1 Key")
             hash_ = salt_copy()
             hash_.update(key)
 
