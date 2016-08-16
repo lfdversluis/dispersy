@@ -180,7 +180,7 @@ class deprecated(object):
         return wrapper_func
 
 
-def run_in_deferred_lock(method):
+def wrap_function_in_deferred_lock(method):
     @functools.wraps(method)
     def wrapped(*args, **kwargs):
         if not hasattr(method, 'lock'):
@@ -188,6 +188,18 @@ def run_in_deferred_lock(method):
 
         return method.lock.run(method, *args, **kwargs)
     return wrapped
+
+
+def wrap_in_shared_lock(lock_name):
+    def wrap_function(method):
+        @functools.wraps(method)
+        def wrapped(obj, *args, **kwargs):
+            if not hasattr(obj, lock_name):
+                obj.setattr(lock_name, DeferredLock())
+
+            return obj.lock_name.run(method, *args, **kwargs)
+        return wrapped
+    return wrap_function
 
 #
 # General Instrumentation stuff

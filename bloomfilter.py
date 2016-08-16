@@ -28,6 +28,8 @@ from struct import Struct
 from binascii import hexlify, unhexlify
 import logging
 
+from util import wrap_in_shared_lock
+
 logger = logging.getLogger(__name__)
 
 
@@ -160,11 +162,12 @@ class BloomFilter(object):
                                            "x" * (hashfn().digest_size - bits_required / 8)))).unpack
         self._salt = hashfn(self._prefix)
 
+    @wrap_in_shared_lock("add_key_bloomfilter")
     def add(self, key):
         """
         Add KEY to the BloomFilter.
         """
-        self._logger.error("AT THE START OF ADD IN BLOOMFILTER")
+        self._logger.error("AT THE START OF ADD IN BLOOMFILTER, ADDING 1 Key")
         filter_ = self._filter
         hash_ = self._salt.copy()
         hash_.update(key)
@@ -173,11 +176,12 @@ class BloomFilter(object):
         self._filter = filter_
         self._logger.error("AT THE END OF ADD IN BLOOMFILTER")
 
+    @wrap_in_shared_lock("add_key_bloomfilter")
     def add_keys(self, keys):
         """
         Add a sequence of KEYS to the BloomFilter.
         """
-        self._logger.error("AT THE START OF ADD_KEYS IN BLOOMFILTER")
+        self._logger.error("AT THE START OF ADD_KEYS IN BLOOMFILTER, ADDING %s keys", len(keys))
         filter_ = self._filter
         salt_copy = self._salt.copy
         m_size = self._m_size

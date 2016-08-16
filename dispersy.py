@@ -70,7 +70,7 @@ from .message import (Message, DropMessage, DelayMessageBySequence,
 from .statistics import DispersyStatistics, _runtime_statistics
 from .taskmanager import TaskManager
 from .util import (attach_runtime_statistics, init_instrumentation, blocking_call_on_reactor_thread, is_valid_address,
-                   get_lan_address_without_netifaces, address_is_lan_without_netifaces, run_in_deferred_lock)
+                   get_lan_address_without_netifaces, address_is_lan_without_netifaces, wrap_function_in_deferred_lock)
 
 
 # Set up the instrumentation utilities
@@ -642,7 +642,7 @@ class Dispersy(TaskManager):
         """
         return cid in self._communities
 
-    @run_in_deferred_lock
+    @wrap_function_in_deferred_lock
     @inlineCallbacks
     def get_community(self, cid, load=False, auto_load=True):
         """

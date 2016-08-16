@@ -43,7 +43,7 @@ from .statistics import CommunityStatistics
 from .taskmanager import TaskManager
 from .timeline import Timeline
 from .util import runtime_duration_warning, attach_runtime_statistics, deprecated, is_valid_address, \
-    run_in_deferred_lock
+    wrap_function_in_deferred_lock
 
 DOWNLOAD_MM_PK_INTERVAL = 15.0
 FAST_WALKER_CANDIDATE_TARGET = 15
@@ -716,6 +716,7 @@ class Community(TaskManager):
                         cached += 1
 
                     # update cached bloomfilter to avoid duplicates
+                    self._logger.error("in dispersy_store, adding one packet to the bloomfilter")
                     cache.bloom_filter.add(message.packet)
 
                     # if this message was received from the candidate we send the bloomfilter too, increment responses
@@ -846,6 +847,7 @@ class Community(TaskManager):
                 t4 = time()
 
             if len(data) > 0:
+                self._logger.error("Adding %s key to the bloomfilter", len(data))
                 bloom.add_keys(str(packet) for _, packet in data)
 
                 if __debug__:
@@ -957,6 +959,7 @@ class Community(TaskManager):
                 sync_packets = yield self._dispersy.database.fetchall(u"SELECT sync.packet FROM sync WHERE meta_message IN (%s) AND sync.undone = 0" % syncable_messages)
                 packets = list(str(packet) for packet, in sync_packets)
 
+            self._logger.error("Adding %s key to the bloomfilter", len(packets))
             bloom.add_keys(packets)
 
             self._logger.debug("%s syncing %d-%d, nr_packets = %d, capacity = %d, totalnr = %d",
@@ -1246,7 +1249,7 @@ class Community(TaskManager):
         else:
             switch_to_normal_walking()
 
-    @run_in_deferred_lock
+    @wrap_function_in_deferred_lock
     @inlineCallbacks
     def take_step(self):
         now = time()
@@ -2738,7 +2741,7 @@ class Community(TaskManager):
                 if self._dispersy._statistics.received_introductions is not None:
                     self._dispersy._statistics.received_introductions[candidate.sock_addr]['-ignored-'] += 1
 
-    @run_in_deferred_lock
+    @wrap_function_in_deferred_lock
     @inlineCallbacks
     def create_introduction_request(self, destination, allow_sync, forward=True, is_fast_walker=False, extra_payload=None):
         assert isinstance(destination, WalkCandidate), [type(destination), destination]
@@ -2788,11 +2791,12 @@ class Community(TaskManager):
                     # BLOOM_FILTER must be the same after transmission
                     test_bloom_filter = BloomFilter(bloom_filter.bytes, bloom_filter.functions, prefix=bloom_filter.prefix)
                     assert bloom_filter.bytes == test_bloom_filter.bytes, "problem with the long <-> binary conversion"
-                    #assert list(bloom_filter.not_filter((packet,) for packet in packets)) == [], "does not have all correct bits set before transmission"
-                    #assert list(test_bloom_filter.not_filter((packet,) for packet in packets)) == [], "does not have all correct bits set after transmission"
+                    assert list(bloom_filter.not_filter((packet,) for packet in packets)) == [], "does not have all correct bits set before transmission"
+                    assert list(test_bloom_filter.not_filter((packet,) for packet in packets)) == [], "does not have all correct bits set after transmission"
 
                     # BLOOM_FILTER must have been correctly filled
                     test_bloom_filter.clear()
+                    self._logger.error("Adding %s key to the TEST bloomfilter", len(packets))
                     test_bloom_filter.add_keys(packets)
                     if not bloom_filter.bytes == bloom_filter.bytes:
                         if bloom_filter.bits_checked < test_bloom_filter.bits_checked:
