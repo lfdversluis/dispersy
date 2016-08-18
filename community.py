@@ -2803,6 +2803,10 @@ class Community(TaskManager):
                     self._logger.error("len of packets before the checks %s",
                                        len(packets))
 
+                    for pz in select_and_fix_packets:
+                        if pz not in packets:
+                            self._logger.error("Packet in select_and_fix but not in packets %s", pz)
+
 
                     # BLOOM_FILTER must be the same after transmission
                     test_bloom_filter = BloomFilter(bloom_filter.bytes, bloom_filter.functions, prefix=bloom_filter.prefix)
