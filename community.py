@@ -2792,6 +2792,18 @@ class Community(TaskManager):
                                                " limit time_low and time_high to 2**63-1")
                         assert False
 
+                    arg1 = u"44, 49, 51, 53, 54, 55, 56, 57, 58, 60, 64, 66, 67, 69"
+                    arg2 = 0
+                    arg3 = 1076
+                    arg4 = True
+
+                    select_and_fix_packets = yield self._select_and_fix(None, arg1, arg2, arg3, arg4)
+                    self._logger.error("len of select_and_fix packets before the checks %s",
+                                       len(select_and_fix_packets[0]))
+                    self._logger.error("len of packets before the checks %s",
+                                       len(packets))
+
+
                     # BLOOM_FILTER must be the same after transmission
                     test_bloom_filter = BloomFilter(bloom_filter.bytes, bloom_filter.functions, prefix=bloom_filter.prefix)
                     assert bloom_filter.bytes == test_bloom_filter.bytes, "problem with the long <-> binary conversion"
