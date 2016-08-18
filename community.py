@@ -2803,7 +2803,7 @@ class Community(TaskManager):
                     self._logger.error("len of packets before the checks %s",
                                        len(packets))
 
-                    for pz in select_and_fix_packets:
+                    for pz in select_and_fix_packets[0]:
                         if pz not in packets:
                             self._logger.error("Packet in select_and_fix but not in packets %s", pz)
 
