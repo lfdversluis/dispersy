@@ -2804,7 +2804,12 @@ class Community(TaskManager):
                                        len(packets))
 
                     for pz in select_and_fix_packets[0]:
-                        if pz not in packets:
+                        bla = False
+                        for packet in packets:
+                            if packet == pz:
+                                bla = True
+                                break
+                        if not bla:
                             self._logger.error("Packet in select_and_fix but not in packets %s", pz)
 
 
